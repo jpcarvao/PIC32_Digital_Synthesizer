@@ -41,10 +41,13 @@ volatile unsigned int phase_incr_main[NUM_KEYS];
 
 //volatile int modulation_constant=0;
 volatile int test_mode_on = 0; 
+volatile int ramp_done = 0;
 
 volatile int ramp_counter = 0;
 volatile int ramp_flag=0;
+volatile int ramp_flag_in=0;
 volatile int button_pressed[NUM_KEYS]= { 0, 0 };
+volatile int button_pressed_in[NUM_KEYS] = {0, 0};
 volatile int num_keys_pressed;
 
 /* *** Keypad Macros *** */
@@ -78,7 +81,7 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     static int temp;
     for (i=0;i<NUM_KEYS;i++)
     {
-   		if (button_pressed[i]) {
+   		if (button_pressed_in[i] || ramp_flag==-1) {
        	    phase_accum_main[i] += phase_incr_main[i];
             temp = phase_accum_main[i]>>24;
 		    num_keys_pressed++;
@@ -89,19 +92,27 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     if (num_keys_pressed){
         DAC_data = DAC_data/num_keys_pressed;
     }
+//    if (!ramp_done) {
+//        ramp_flag=ramp_flag_in;
+//    }
+//    else {
+//        ramp_flag=0;
+//    }
     ramp_counter += ramp_flag;
-    if (ramp_counter == 0  || ramp_counter == 511) {
+    if (ramp_counter <= 0) {
+        ramp_counter=0;
         ramp_flag=0;
     }
-    // now the 90 degree data
-    //int_counter++;
+    if (ramp_counter>=511)
+    {
+        ramp_counter=511;
+        ramp_flag=0;
+    }
     // === Channel A =============
     // CS low to start transaction
      mPORTBClearBits(BIT_4); // start transaction
-    // test for ready
-     //while (TxBufFullSPI2());
     // write to spi2 
-    WriteSPI2( DAC_config_chan_A | ((511*DAC_data)>>9)+2048);
+    WriteSPI2( DAC_config_chan_A | ((ramp_counter*DAC_data)>>9)+2048);
     while (SPI2STATbits.SPIBUSY); // wait for end of transaction
      // CS high
     mPORTBSetBits(BIT_4); // end transaction
@@ -113,12 +124,13 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 	static int none_pressed;
 	static int none_pressed_old;
 	while (1) {
-		PT_YIELD_TIME_msec(30);
+		PT_YIELD_TIME_msec(5);
 		none_pressed_old = none_pressed;
 		none_pressed = 1;
         int i;
 		for (i=0; i<NUM_KEYS; i++)
 		{
+            button_pressed_in[i] = button_pressed[i];
 			if (button_pressed[i])
 			{
 				none_pressed=0;
@@ -139,7 +151,7 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 			}
 		}
 		if (none_pressed) {
-			ramp_flag=-1;
+            ramp_flag=-1;
 		}
 
 	}
@@ -186,7 +198,7 @@ static PT_THREAD (protothread_read_button(struct pt *pt))
         tft_fillRoundRect(0, 50, 400, 40, 1, ILI9340_BLACK);
         tft_setCursor(0,50);
         tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-        sprintf(buffer, "%d\n", button_pressed[0]);
+        sprintf(buffer, "%d\n", ramp_flag);
         tft_writeString(buffer);
         tft_fillRoundRect(0, 100, 400, 40, 1, ILI9340_BLACK);
         tft_setCursor(0,100);
