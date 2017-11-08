@@ -6,6 +6,12 @@
  * Source code for our final project in ECE 4760 
  * 
 */
+#include "config.h"
+#include "pt_cornell_1_2.h"
+#include "tft_master.h"
+#include "tft_gfx.h"
+#include <math.h>
+
 #define DAC_config_chan_A 0b0011000000000000
 #define DAC_config_chan_B 0b1011000000000000
 #define Fs 70000.0  // 70kHz
@@ -13,11 +19,6 @@
 #define frequency 440 
 #define NUM_KEYS 2
 
-#include "config.h"
-#include "pt_cornell_1_2.h"
-#include "tft_master.h"
-#include "tft_gfx.h"
-#include <math.h>
 
 volatile SpiChannel spiChn = SPI_CHANNEL2 ;	// the SPI channel to use
 // for 60 MHz PB clock use divide-by-3
@@ -25,6 +26,7 @@ volatile int spiClkDiv = 2 ; // 20 MHz DAC clock
 
 // === thread structures ============================================
 static struct pt pt_read_button, pt_read_inputs, pt_freq_tune;  
+
 // DDS sine table
 #define SINE_TABLE_SIZE 256
 volatile int sin_table[SINE_TABLE_SIZE];
@@ -33,42 +35,45 @@ volatile int sin_table[SINE_TABLE_SIZE];
 // actual scaled DAC 
 volatile int DAC_data;
 
-volatile int frequencies[NUM_KEYS] = { 440, 554 };
-volatile int frequencies_set[NUM_KEYS] = { 440, 554 };
+// A4, C#4, and F#4 
+volatile int frequencies[NUM_KEYS] = { 440, 554 };  // actual frequencies 
+volatile int frequencies_set[NUM_KEYS] = { 440, 554 };  // for freq modulation
 // the DDS units:
 //volatile unsigned int phase_accum_main = 0, phase_incr_main = frequency*two32/Fs;
-volatile unsigned int phase_accum_main[NUM_KEYS]={0,0};
+volatile unsigned int phase_accum_main[NUM_KEYS] = {0,0};
 volatile unsigned int phase_incr_main[NUM_KEYS];
 
-//volatile int modulation_constant=0;
-volatile int test_mode_on = 0; 
+//volatile int modulation_constant=0; 
 volatile int ramp_done = 0;
-
 volatile int ramp_counter = 0;
 volatile int ramp_flag=0;
 volatile int ramp_flag_in=0;
-volatile int button_pressed[NUM_KEYS]= { 0, 0 };
+volatile int button_pressed[NUM_KEYS] = {0, 0};
 volatile int button_pressed_in[NUM_KEYS] = {0, 0};
 volatile int num_keys_pressed;
 
 /* *** Keypad Macros *** */
 // PORT B
-#define EnablePullDownB(bits) CNPUBCLR=bits; CNPDBSET=bits;
-#define DisablePullDownB(bits) CNPDBCLR=bits;
-#define EnablePullUpB(bits) CNPDBCLR=bits; CNPUBSET=bits;
-#define DisablePullUpB(bits) CNPUBCLR=bits;
+#define EnablePullDownB(bits) CNPUBCLR = bits; CNPDBSET = bits;
+#define DisablePullDownB(bits) CNPDBCLR = bits;
+#define EnablePullUpB(bits) CNPDBCLR = bits; CNPUBSET = bits;
+#define DisablePullUpB(bits) CNPUBCLR = bits;
 //PORT A
-#define EnablePullDownA(bits) CNPUACLR=bits; CNPDASET=bits;
-#define DisablePullDownA(bits) CNPDACLR=bits;
-#define EnablePullUpA(bits) CNPDACLR=bits; CNPUASET=bits;
-#define DisablePullUpA(bits) CNPUACLR=bits;
+#define EnablePullDownA(bits) CNPUACLR = bits; CNPDASET = bits;
+#define DisablePullDownA(bits) CNPDACLR = bits;
+#define EnablePullUpA(bits) CNPDACLR = bits; CNPUASET = bits;
+#define DisablePullUpA(bits) CNPUACLR = bits;
 /*
 E.g.
 EnablePullDownB( BIT_7 | BIT_8 | BIT_9);
 */
 
-/* Auxiliary Function definitions */
 
+#define ONE_SECOND 1000  // yield macro 
+
+
+/* Auxiliary Function definitions */
+void adc_config(void);
 
 void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
 {
@@ -115,9 +120,9 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     // write to spi2 
     WriteSPI2( DAC_config_chan_A | ((ramp_counter*DAC_data)>>9)+2048);
     while (SPI2STATbits.SPIBUSY); // wait for end of transaction
-     // CS high
+    // CS high
     mPORTBSetBits(BIT_4); // end transaction
-} // end ISR TIMER2
+}  // end ISR TIMER2
 
 static PT_THREAD (protothread_read_inputs(struct pt *pt))
 {
@@ -140,14 +145,14 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 				{
 					ramp_flag=1;
 				}
-				//NEED CODE THAT KEEPS TRACK OF WHEN BUTTONS ARE PRESSED FOR TIMING 
+				// NEED CODE THAT KEEPS TRACK OF WHEN BUTTONS ARE PRESSED FOR TIMING 
 
 			}
 			else 
 			{
                 int y;
                 y=2;
-				//NEED CODE THAT KEEPS TRACK OF WHEN BUTTONS ARE RELEASED FOR TIMING 
+				// NEED CODE THAT KEEPS TRACK OF WHEN BUTTONS ARE RELEASED FOR TIMING 
 
 			}
 		}
@@ -165,8 +170,7 @@ static PT_THREAD (protothread_read_button(struct pt *pt))
     static int pressed[NUM_KEYS]; 
     char buffer[256];
     mPORTBSetPinsDigitalIn(BIT_3);
-    mPORTBSetPinsDigitalIn(BIT_7);
-    #define ONE_SECOND 1000  
+    mPORTBSetPinsDigitalIn(BIT_7);  
     static int state[NUM_KEYS];
     int i;
     for (i=0;i<NUM_KEYS;i++)
@@ -217,25 +221,27 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
     char buffer[256];
     static float scale;
     static int adc_val;
+    static int counter = 0;  // used to decrease rate of printing
     while(1) {
         PT_YIELD_TIME_msec(10);
-        //frequency = ReadADC10(0);
-        // 502 = 0
+        // adc_val of 502 is 0 for freq modulation
         static int j;
         adc_val = ReadADC10(0);
-        scale = ((float)(1.5*(adc_val-502))/1024.0)+0.5;;
+        scale = ((float)(1.5*(adc_val-502))/1024.0)+1;
         for (j = 0; j < NUM_KEYS; j++) {
             frequencies[j] = ((int) frequencies_set[j] * scale);
             phase_incr_main[j]  = frequencies[j]*two32/Fs;
         }
-        
-        //phase_incr_main = frequency*two32/Fs;
-        tft_fillRoundRect(0, 50, 400, 40, 1, ILI9340_BLACK);
-        tft_setCursor(0,70);
-        tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-        sprintf(buffer, "ADC raw: %d\n", ReadADC10(0));
-        sprintf(buffer, "frequency: %d\n", frequencies[0]);
-        tft_writeString(buffer);
+        // print every 500 ms -- will be removed later anyway 
+        if (counter%50) {  
+            tft_fillRoundRect(0, 50, 400, 40, 1, ILI9340_BLACK);
+            tft_setCursor(0,70);
+            tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
+            sprintf(buffer, "ADC raw: %d\n", ReadADC10(0));
+            sprintf(buffer, "frequency: %d\n", frequencies[0]);
+            tft_writeString(buffer);
+        }
+        counter++;
     }
     PT_END(pt);
 }
