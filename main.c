@@ -19,17 +19,28 @@
 #define frequency 440 
 #define NUM_KEYS 2
 
+// === 16:16 fixed point macros ==========================================
+typedef signed int fix16 ;
+#define multfix16(a,b) ((fix16)(((( signed long long)(a))*(( signed long long)(b)))>>16)) //multiply two fixed 16:16
+#define float2fix16(a) ((fix16)((a)*65536.0)) // 2^16
+#define fix2float16(a) ((float)(a)/65536.0)
+#define fix2int16(a)    ((int)((a)>>16))
+#define int2fix16(a)    ((fix16)((a)<<16))
+#define divfix16(a,b) ((fix16)((((signed long long)(a)<<16)/(b)))) 
+#define sqrtfix16(a) (float2fix16(sqrt(fix2float16(a)))) 
+#define absfix16(a) abs(a)
+
 
 volatile SpiChannel spiChn = SPI_CHANNEL2 ;	// the SPI channel to use
 // for 60 MHz PB clock use divide-by-3
 volatile int spiClkDiv = 2 ; // 20 MHz DAC clock
 
 // === thread structures ============================================
-static struct pt pt_read_button, pt_read_inputs, pt_freq_tune;  
+static struct pt pt_read_button, pt_read_inputs, pt_read_repeat, pt_freq_tune, pt_repeat_buttons;  
 
 // DDS sine table
 #define SINE_TABLE_SIZE 256
-volatile int sin_table[SINE_TABLE_SIZE];
+volatile fix16 sin_table[SINE_TABLE_SIZE];
 
 //== Timer 2 interrupt handler ===========================================
 // actual scaled DAC 
@@ -37,11 +48,15 @@ volatile int DAC_data;
 
 // A4, C#4, and F#4 
 volatile int frequencies[NUM_KEYS] = { 440, 554 };  // actual frequencies 
-volatile int frequencies_set[NUM_KEYS] = { 440, 554 };  // for freq modulation
+volatile int frequencies_set[NUM_KEYS] = {440, 554 };  // for freq modulation
+volatile int frequencies_FM[NUM_KEYS] = {440*4,554*4};
 // the DDS units:
 //volatile unsigned int phase_accum_main = 0, phase_incr_main = frequency*two32/Fs;
 volatile unsigned int phase_accum_main[NUM_KEYS] = {0,0};
 volatile unsigned int phase_incr_main[NUM_KEYS];
+
+volatile unsigned int phase_accum_FM[NUM_KEYS] = {0,0};
+volatile unsigned int phase_incr_FM[NUM_KEYS];
 
 //volatile int modulation_constant=0; 
 volatile int ramp_done = 0;
@@ -51,6 +66,15 @@ volatile int ramp_flag_in=0;
 volatile int button_pressed[NUM_KEYS] = {0, 0};
 volatile int button_pressed_in[NUM_KEYS] = {0, 0};
 volatile int num_keys_pressed;
+
+#define KEYPRESS_SIZE 256
+volatile int keypresses[KEYPRESS_SIZE];
+volatile int keypress_ID[KEYPRESS_SIZE];
+volatile int keypress_count = 0;
+
+volatile int repeat_mode_on = 0;
+volatile int valid_size;
+volatile float tempo;
 
 /* *** Keypad Macros *** */
 // PORT B
@@ -85,13 +109,18 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     //sine_index = phase_accum_main>>24 ;
     int i;
     static int temp;
+    static int temp2;
+    
     for (i=0;i<NUM_KEYS;i++)
     {
+        temp = phase_accum_FM[i]>>24;
    		if (button_pressed_in[i] || ramp_flag==-1) {
-       	    phase_accum_main[i] += phase_incr_main[i];
-            temp = phase_accum_main[i]>>24;
+            phase_accum_FM[i] += phase_incr_FM[i];
+       	    //phase_accum_main[i] += phase_incr_main[i] + ((unsigned int)sin_table[phase_accum_FM[i]>>24]);
+            phase_accum_main[i] += phase_incr_main[i] + multfix16(float2fix16(0.5),sin_table[phase_accum_FM[i]>>24]);
+            temp2 = phase_accum_main[i]>>24;
+		    DAC_data += fix2int16(sin_table[temp2]);
 		    num_keys_pressed++;
-		    DAC_data += sin_table[temp];
     	}
    }
 
@@ -129,30 +158,41 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 	PT_BEGIN(pt);
 	static int none_pressed;
 	static int none_pressed_old;
+    static int pressed_old[NUM_KEYS];
 	while (1) {
 		PT_YIELD_TIME_msec(5);
 		none_pressed_old = none_pressed;
 		none_pressed = 1;
         int i;
-		for (i=0; i<NUM_KEYS; i++)
-		{
+		for (i=0; i<NUM_KEYS; i++) {
+            pressed_old[i] = button_pressed_in[i];
             button_pressed_in[i] = button_pressed[i];
-			if (button_pressed[i])
-			{
+			if (button_pressed_in[i]) {
 				none_pressed=0;
 				//ramp up if nothing was pressed before and now something is pressed, indicating a new sound 
-				if (none_pressed_old)
-				{
+				if (none_pressed_old) {
 					ramp_flag=1;
 				}
-				// NEED CODE THAT KEEPS TRACK OF WHEN BUTTONS ARE PRESSED FOR TIMING 
+                
+                if (!pressed_old[i]) {
+                    //record time of press/release and which key was pressed/released
+                    if (!repeat_mode_on) {
+                        keypresses[keypress_count]=PT_GET_TIME();
+                        keypress_ID[keypress_count]=i;
+                        keypress_count++;
+                    }
+                }
 
 			}
-			else 
-			{
-                int y;
-                y=2;
-				// NEED CODE THAT KEEPS TRACK OF WHEN BUTTONS ARE RELEASED FOR TIMING 
+			else {                
+                if (pressed_old[i]) {
+                    //record time of press/release and which key was pressed/released
+                    if (!repeat_mode_on) {
+                        keypresses[keypress_count]=PT_GET_TIME();
+                        keypress_ID[keypress_count]=i;
+                        keypress_count++;
+                    }
+                }
 
 			}
 		}
@@ -164,41 +204,69 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 	PT_END(pt);
 }
 
+static PT_THREAD(protothread_read_repeat(struct pt *pt))
+{
+    PT_BEGIN(pt);
+    static int state=0;
+    while (1) {
+        PT_YIELD_TIME_msec(30);
+        if (mPORTBReadBits(BIT_8)) {
+            repeat_mode_on=1;
+            if (!state) {
+                keypresses[keypress_count] = PT_GET_TIME();
+                keypress_ID[keypress_count] = -1; 
+                valid_size = keypress_count;
+            }
+            state=1;
+        }
+        else 
+        {
+            repeat_mode_on=0;
+            state=0;
+        }
+    }
+    PT_END(pt);
+}
+
 static PT_THREAD (protothread_read_button(struct pt *pt))
 {
     PT_BEGIN(pt);
     static int pressed[NUM_KEYS]; 
-    char buffer[256];
+    
     mPORTBSetPinsDigitalIn(BIT_3);
+    mPORTBSetPinsDigitalIn(BIT_8);
     mPORTBSetPinsDigitalIn(BIT_7);  
-    static int state[NUM_KEYS];
-    int i;
-    for (i=0;i<NUM_KEYS;i++)
-    {
-        state[i] = 0;
-    }
+    static int i;
     while(1) {
         PT_YIELD_TIME_msec(30);
         pressed[0] = mPORTBReadBits(BIT_3);
         pressed[1] = mPORTBReadBits(BIT_7);
-        for (i=0;i<NUM_KEYS;i++)
-        {
-            if (!state[i]) {
-                if (pressed[i])
-                {
-                    state[i]=1;
-                    button_pressed[i]=1;
-                    //ramp_flag=1;
-                }
+
+        
+            
+        for (i=0;i<NUM_KEYS;i++) {
+            if (pressed[i]) {
+                button_pressed[i]=1;
             }
             else {
-                if (!pressed[i])
-                {
-                    state[i]=0;
-                    button_pressed[i]=0;
-                    //ramp_flag=-1;
-                }
+                button_pressed[i]=0;
             }
+//            if (!state[i]) {
+//                if (pressed[i])
+//                {
+//                    state[i]=1;
+//                    //button_pressed[i]=1;
+//                    //ramp_flag=1;
+//                }
+//            }
+//            else {
+//                if (!pressed[i])
+//                {
+//                    state[i]=0;
+//                    //button_pressed[i]=0;
+//                    //ramp_flag=-1;
+//                }
+//            }
         }
 //        tft_fillRoundRect(0, 50, 400, 40, 1, ILI9340_BLACK);
 //        tft_setCursor(0,50);
@@ -214,6 +282,39 @@ static PT_THREAD (protothread_read_button(struct pt *pt))
     PT_END(pt);
 }
 
+static PT_THREAD (protothread_repeat_buttons(struct pt *pt))
+{
+    PT_BEGIN(pt);
+    static int yield_length;
+    static int i;
+    static int j;
+    char buffer[256];
+    while (1) {
+        for (j=0; j<NUM_KEYS; j++) {
+            button_pressed[j]=0;
+        }
+        PT_YIELD_TIME_msec(keypresses[0]);
+        for (i=0; i<valid_size; i++) {
+            yield_length = keypresses[i+1]-keypresses[i];
+            if (!button_pressed[keypress_ID[i]]) {
+                button_pressed[keypress_ID[i]] = 1;
+            }
+            else {
+                button_pressed[keypress_ID[i]] = 0;
+            }
+            PT_YIELD_TIME_msec(((int)yield_length*tempo));
+//            if (i==1) {
+//            tft_fillRoundRect(0, 50, 400, 60, 1, ILI9340_BLACK);
+//            tft_setCursor(0,50);
+//            tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
+//            sprintf(buffer, "%d", yield_length);
+//            tft_writeString(buffer);
+//            }
+        }
+    }
+    PT_END(pt);
+}
+
 
 static PT_THREAD (protothread_freq_tune(struct pt *pt))
 {
@@ -221,24 +322,30 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
     char buffer[256];
     static float scale;
     static int adc_val;
+    static float scale2;
     static int counter = 0;  // used to decrease rate of printing
     while(1) {
-        PT_YIELD_TIME_msec(10);
+        PT_YIELD_TIME_msec(5); 
         // adc_val of 502 is 0 for freq modulation
         static int j;
         adc_val = ReadADC10(0);
         scale = ((float)(1.5*(adc_val-502))/1024.0)+1;
+        scale2 = ((float)adc_val/1024.0);
+        tempo = scale2*2;
         for (j = 0; j < NUM_KEYS; j++) {
-            frequencies[j] = ((int) frequencies_set[j] * scale);
+            //frequencies[j] = ((int) frequencies_set[j] * scale);
+            frequencies[j] = ((int) frequencies_set[j] * 1);
             phase_incr_main[j]  = frequencies[j]*two32/Fs;
+            frequencies_FM[j] = 3*frequencies[j];
+            phase_incr_FM[j]  = frequencies_FM[j]*two32/Fs;
         }
         // print every 500 ms -- will be removed later anyway 
         if (counter%50) {  
-            tft_fillRoundRect(0, 50, 400, 40, 1, ILI9340_BLACK);
-            tft_setCursor(0,70);
+            tft_fillRoundRect(0, 90, 400, 60, 1, ILI9340_BLACK);
+            tft_setCursor(0,90);
             tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-            sprintf(buffer, "ADC raw: %d\n", ReadADC10(0));
-            sprintf(buffer, "frequency: %d\n", frequencies[0]);
+            sprintf(buffer, "%d", valid_size);
+            //sprintf(buffer, "%d %d %d %d %d %d", keypresses[0], keypresses[1], keypresses[2], keypresses[3], keypresses[4], keypresses[5]);
             tft_writeString(buffer);
         }
         counter++;
@@ -313,24 +420,38 @@ void main(void)
     tft_begin();
     tft_fillScreen(ILI9340_BLACK);
     //240x320 vertical display
-    tft_setRotation(0); // Use tft_setRotation(1) for 320x240
+    tft_setRotation(1); // Use tft_setRotation(1) for 320x240
     
     // build the sine lookup table
     // scaled to produce values between 0 and 4096
     
-    int i;
-    for (i = 0; i < SINE_TABLE_SIZE; i++) 
-        sin_table[i] = (int)(2047*sin((float)i*6.283/(float)SINE_TABLE_SIZE));
-    
+   int i;
+   for (i = 0; i < SINE_TABLE_SIZE; i++){
+         sin_table[i] =  float2fix16(2047*sin((float)i*6.283/(float)SINE_TABLE_SIZE));
+    }
+   
+   int j;
+   for (j=0; j<KEYPRESS_SIZE; j++) {
+       keypresses[j] = 0;
+       keypress_ID[j] = 0;
+   }
     
     // PT INIT
     PT_INIT(&pt_read_button);
     PT_INIT(&pt_read_inputs);
     PT_INIT(&pt_freq_tune);
+    PT_INIT(&pt_read_repeat);
+    PT_INIT(&pt_repeat_buttons);
     // scheduling loop 
     while(1) {
-        PT_SCHEDULE(protothread_read_button(&pt_read_button));
+        if (!repeat_mode_on){
+            PT_SCHEDULE(protothread_read_button(&pt_read_button));
+        }
+        else {
+            PT_SCHEDULE(protothread_repeat_buttons(&pt_repeat_buttons));
+        }
         PT_SCHEDULE(protothread_read_inputs(&pt_read_inputs));
         PT_SCHEDULE(protothread_freq_tune(&pt_freq_tune));
+        PT_SCHEDULE(protothread_read_repeat(&pt_read_repeat));
     }    
 }  // main
