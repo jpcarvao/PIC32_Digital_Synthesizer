@@ -83,9 +83,6 @@ volatile unsigned int current_flanger_delay = 2000;
 volatile int flange_counter = 0;
 volatile int delay_counter = 0;
 volatile int flange_flag=-1;
-#define FLANGE_SWEEP_FREQ 5
-volatile unsigned int phase_accum_flange = 0;
-volatile unsigned int phase_incr_flange = FLANGE_SWEEP_FREQ*two32/Fs;
 volatile short delay_signal;
 volatile int delay_on=0;
 
