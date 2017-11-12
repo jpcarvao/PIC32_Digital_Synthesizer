@@ -44,7 +44,7 @@ volatile fix16 sin_table[SINE_TABLE_SIZE];
 
 //== Timer 2 interrupt handler ===========================================
 // actual scaled DAC 
-volatile int DAC_data;
+volatile short DAC_data;
 
 // A4, C#4, and F#4 
 volatile int frequencies[NUM_KEYS] = { 440, 554 };  // actual frequencies 
@@ -76,6 +76,20 @@ volatile int repeat_mode_on = 0;
 volatile int valid_size;
 volatile float tempo;
 
+#define MAX_FLANGER_SIZE 2048
+volatile short flange_buffer[MAX_FLANGER_SIZE];
+#define DELAY_RAMP_PERIOD 1000
+volatile unsigned int current_flanger_delay = 2000;
+volatile int flange_counter = 0;
+volatile int delay_counter = 0;
+volatile int flange_flag=-1;
+#define FLANGE_SWEEP_FREQ 5
+volatile unsigned int phase_accum_flange = 0;
+volatile unsigned int phase_incr_flange = FLANGE_SWEEP_FREQ*two32/Fs;
+volatile short delay_signal;
+volatile int delay_on=0;
+
+
 /* *** Keypad Macros *** */
 // PORT B
 #define EnablePullDownB(bits) CNPUBCLR = bits; CNPDBSET = bits;
@@ -106,10 +120,11 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     // main DDS phase
     DAC_data = 0;
     num_keys_pressed = 0;
-    //sine_index = phase_accum_main>>24 ;
+    
     int i;
     static int temp;
     static int temp2;
+    static int delay_index;
     
     for (i=0;i<NUM_KEYS;i++)
     {
@@ -143,11 +158,48 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
         ramp_counter=511;
         ramp_flag=0;
     }
+    
+    //phase_accum_flange += phase_incr_flange;
+    //current_flanger_delay = fix2int16(sin_table[phase_accum_flange>>24])+2048;
+    //current_flanger_delay = current_flanger_delay>>1;
+    
+    delay_counter++;
+    if (delay_counter==DELAY_RAMP_PERIOD) {
+        current_flanger_delay+=flange_flag;
+        delay_counter=0;
+    }
+    if (current_flanger_delay==0)
+    {
+        flange_flag=1;
+    }
+    if (current_flanger_delay>=MAX_FLANGER_SIZE)
+    {
+        flange_flag=-1; 
+    }
+    
+    flange_counter++;
+    if (flange_counter>MAX_FLANGER_SIZE) {
+        flange_counter=0;
+        delay_on=1;
+    }
+    flange_buffer[flange_counter]=(ramp_counter*DAC_data)>>9;
+    delay_index=0;
+    if (delay_on){
+        delay_index = flange_counter - current_flanger_delay;
+        if (delay_index<0) {
+            delay_index+=MAX_FLANGER_SIZE;
+        }
+    }
+    delay_signal = flange_buffer[delay_index];
+    
+    //DAC_data = (DAC_data+delay_signal);
+    //DAC_data = delay_signal;
+    
     // === Channel A =============
     // CS low to start transaction
      mPORTBClearBits(BIT_4); // start transaction
     // write to spi2 
-    WriteSPI2( DAC_config_chan_A | ((ramp_counter*DAC_data)>>9)+2048);
+    WriteSPI2( DAC_config_chan_A | ((ramp_counter*(DAC_data+delay_signal))>>10)+2048);
     while (SPI2STATbits.SPIBUSY); // wait for end of transaction
     // CS high
     mPORTBSetBits(BIT_4); // end transaction
@@ -344,7 +396,7 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
             tft_fillRoundRect(0, 90, 400, 60, 1, ILI9340_BLACK);
             tft_setCursor(0,90);
             tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-            sprintf(buffer, "%d", valid_size);
+            sprintf(buffer, "%d", current_flanger_delay);
             //sprintf(buffer, "%d %d %d %d %d %d", keypresses[0], keypresses[1], keypresses[2], keypresses[3], keypresses[4], keypresses[5]);
             tft_writeString(buffer);
         }
@@ -434,6 +486,11 @@ void main(void)
    for (j=0; j<KEYPRESS_SIZE; j++) {
        keypresses[j] = 0;
        keypress_ID[j] = 0;
+   }
+   
+   int k;
+   for (k=0; k<MAX_FLANGER_SIZE; k++) {
+       flange_buffer[k] = 0;
    }
     
     // PT INIT
