@@ -14,7 +14,7 @@
 
 #define DAC_config_chan_A 0b0011000000000000
 #define DAC_config_chan_B 0b1011000000000000
-#define Fs 70000.0  // 70kHz
+#define Fs 20000.0  // 70kHz
 #define two32 4294967296.0 // 2^32 
 #define frequency 440 
 #define NUM_KEYS 2
@@ -48,13 +48,14 @@ volatile short DAC_data;
 
 // A4, C#4, and F#4 
 volatile int frequencies[NUM_KEYS] = { 440, 554 };  // actual frequencies 
-volatile int frequencies_set[NUM_KEYS] = {440, 554 };  // for freq modulation
+volatile int frequencies_set[NUM_KEYS] = { 440, 554 };  // for freq modulation
 volatile int frequencies_FM[NUM_KEYS] = {440*4,554*4};
 // the DDS units:
 //volatile unsigned int phase_accum_main = 0, phase_incr_main = frequency*two32/Fs;
+// for sine table
 volatile unsigned int phase_accum_main[NUM_KEYS] = {0,0};
 volatile unsigned int phase_incr_main[NUM_KEYS];
-
+// for FM synthesis
 volatile unsigned int phase_accum_FM[NUM_KEYS] = {0,0};
 volatile unsigned int phase_incr_FM[NUM_KEYS];
 
@@ -101,11 +102,6 @@ volatile int delay_on=0;
 #define DisablePullDownA(bits) CNPDACLR = bits;
 #define EnablePullUpA(bits) CNPDACLR = bits; CNPUASET = bits;
 #define DisablePullUpA(bits) CNPUACLR = bits;
-/*
-E.g.
-EnablePullDownB( BIT_7 | BIT_8 | BIT_9);
-*/
-
 
 #define ONE_SECOND 1000  // yield macro 
 
@@ -126,8 +122,8 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     static int temp2;
     static int delay_index;
     
-    for (i=0;i<NUM_KEYS;i++)
-    {
+    // FM synthesis
+    for (i=0;i<NUM_KEYS;i++) {
         temp = phase_accum_FM[i]>>24;
    		if (button_pressed_in[i] || ramp_flag==-1) {
             phase_accum_FM[i] += phase_incr_FM[i];
@@ -137,58 +133,50 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
 		    DAC_data += fix2int16(sin_table[temp2]);
 		    num_keys_pressed++;
     	}
-   }
-
-    if (num_keys_pressed){
+    }
+    // normalize key presses
+    if (num_keys_pressed) {
         DAC_data = DAC_data/num_keys_pressed;
     }
-//    if (!ramp_done) {
-//        ramp_flag=ramp_flag_in;
-//    }
-//    else {
-//        ramp_flag=0;
-//    }
+
     ramp_counter += ramp_flag;
     if (ramp_counter <= 0) {
-        ramp_counter=0;
+        ramp_counter = 0;
+        ramp_flag = 0;
+    }
+    if (ramp_counter >= 511) {
+        ramp_counter = 511;
         ramp_flag=0;
     }
-    if (ramp_counter>=511)
-    {
-        ramp_counter=511;
-        ramp_flag=0;
-    }
-//    
-//    
+  
     delay_counter++;
-    if (delay_counter==DELAY_RAMP_PERIOD) {
-        current_flanger_delay+=flange_flag;
-        delay_counter=0;
+    if (delay_counter == DELAY_RAMP_PERIOD) {
+        current_flanger_delay += flange_flag;
+        delay_counter = 0;
     }
-    if (current_flanger_delay==0)
-    {
-        flange_flag=1;
+    if (current_flanger_delay == 0){
+        flange_flag = 1;
     }
-    if (current_flanger_delay>=MAX_FLANGER_SIZE)
-    {
-        flange_flag=-1; 
+    if (current_flanger_delay >= MAX_FLANGER_SIZE) {
+        flange_flag = -1; 
     }
     
     flange_counter++;
-    if (flange_counter>MAX_FLANGER_SIZE-1) {
-        flange_counter=0;
+    // MAX_FLANGER_SIZE-1 to avoid negative index in keys_pressed[i]
+    if (flange_counter > MAX_FLANGER_SIZE-1) {
+        flange_counter = 0;
         delay_on=1;
     }
-    flange_buffer[flange_counter]=(ramp_counter*DAC_data)>>9;
-    delay_index=0;
+    flange_buffer[flange_counter] = (ramp_counter*DAC_data)>>9;
+    delay_index = 0;
     if (delay_on){
         delay_index = flange_counter - current_flanger_delay;
-        if (delay_index<0) {
-            delay_index+=MAX_FLANGER_SIZE;
+        if (delay_index < 0) {
+            delay_index += MAX_FLANGER_SIZE;
         }
     }
     delay_signal = flange_buffer[delay_index];
-    
+
     
     // === Channel A =============
     // CS low to start transaction
@@ -266,10 +254,9 @@ static PT_THREAD(protothread_read_repeat(struct pt *pt))
             }
             state=1;
         }
-        else 
-        {
-            repeat_mode_on=0;
-            state=0;
+        else {
+            repeat_mode_on = 0;
+            state = 0;
         }
     }
     PT_END(pt);
@@ -288,9 +275,7 @@ static PT_THREAD (protothread_read_button(struct pt *pt))
         PT_YIELD_TIME_msec(30);
         pressed[0] = mPORTBReadBits(BIT_3);
         pressed[1] = mPORTBReadBits(BIT_7);
-
-        
-            
+           
         for (i=0;i<NUM_KEYS;i++) {
             if (pressed[i]) {
                 button_pressed[i]=1;
@@ -337,19 +322,19 @@ static PT_THREAD (protothread_repeat_buttons(struct pt *pt))
     static int j;
     char buffer[256];
     while (1) {
-        for (j=0; j<NUM_KEYS; j++) {
+        for (j = 0; j < NUM_KEYS; j++) {
             button_pressed[j]=0;
         }
         PT_YIELD_TIME_msec(keypresses[0]);
-        for (i=0; i<valid_size; i++) {
-            yield_length = keypresses[i+1]-keypresses[i];
+        for (i = 0; i < valid_size; i++) {
+            yield_length = keypresses[i+1] - keypresses[i];
             if (!button_pressed[keypress_ID[i]]) {
                 button_pressed[keypress_ID[i]] = 1;
             }
             else {
                 button_pressed[keypress_ID[i]] = 0;
             }
-            if (i!=valid_size-1) {
+            if (i != valid_size-1) {
                 PT_YIELD_TIME_msec(((int)yield_length*tempo));
             }
 //            if (i==1) {
@@ -430,7 +415,8 @@ void main(void)
     // 200 is 200 ksamples/sec
     // increased to 572 from 200 because was leading to incorrect sine freq
     //changing from 143
-    OpenTimer2(T2_ON | T2_SOURCE_INT | T2_PS_1_4, 143);   
+    #define ISR_PERIOD 
+    OpenTimer2(T2_ON | T2_SOURCE_INT | T2_PS_1_4, 508);   
     ConfigIntTimer2(T2_INT_ON | T2_INT_PRIOR_2);
     mT2ClearIntFlag(); 
     
