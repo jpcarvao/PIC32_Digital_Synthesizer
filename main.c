@@ -29,6 +29,8 @@ typedef signed int fix16 ;
 #define divfix16(a,b) ((fix16)((((signed long long)(a)<<16)/(b)))) 
 #define sqrtfix16(a) (float2fix16(sqrt(fix2float16(a)))) 
 #define absfix16(a) abs(a)
+#define onefix16 0x00010000 // int2fix16(1)
+
 
 
 volatile SpiChannel spiChn = SPI_CHANNEL2 ;	// the SPI channel to use
@@ -62,8 +64,7 @@ volatile unsigned int phase_incr_FM[NUM_KEYS];
 //volatile int modulation_constant=0; 
 volatile int ramp_done = 0;
 volatile int ramp_counter = 0;
-volatile int ramp_flag=0;
-volatile int ramp_flag_in=0;
+volatile int ramp_flag[NUM_KEYS]= {0, 0};
 volatile int button_pressed[NUM_KEYS] = {0, 0};
 volatile int button_pressed_in[NUM_KEYS] = {0, 0};
 volatile int num_keys_pressed;
@@ -79,7 +80,7 @@ volatile float tempo;
 
 #define MAX_FLANGER_SIZE 2048
 volatile short flange_buffer[MAX_FLANGER_SIZE];
-#define DELAY_RAMP_PERIOD 200
+#define DELAY_RAMP_PERIOD 2000
 volatile unsigned int current_flanger_delay = 2000;
 volatile int flange_counter = 0;
 volatile int delay_counter = 0;
@@ -89,6 +90,23 @@ volatile unsigned int phase_accum_flange = 0;
 volatile unsigned int phase_incr_flange = FLANGE_SWEEP_FREQ*two32/Fs;
 volatile short delay_signal;
 volatile int delay_on=0;
+
+volatile fix16 dk_fm=float2fix16(0.97), attack_fm=float2fix16(0.05);
+volatile fix16 dk_main=float2fix16(0.97), attack_main=float2fix16(0.05);
+volatile fix16 dk_state_fm[NUM_KEYS], attack_state_fm[NUM_KEYS];
+volatile fix16 dk_state_main[NUM_KEYS], attack_state_main[NUM_KEYS];
+volatile fix16 fm_depth=float2fix16(0.5);
+volatile fix16 env_fm[NUM_KEYS] = {0,0};
+volatile fix16 env_main[NUM_KEYS] = {0,0};
+
+
+
+volatile fix16 dk_state_fm_temp;
+volatile fix16 dk_state_main_temp;
+volatile fix16 attack_state_fm_temp;
+volatile fix16 attack_state_main_temp;
+
+volatile int dk_interval = 0;
 
 
 /* *** Keypad Macros *** */
@@ -118,19 +136,50 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     num_keys_pressed = 0;
     
     int i;
-    static int temp;
-    static int temp2;
     static int delay_index;
+    static int dk_flag;
     
+    dk_flag=0;
+    
+    
+    dk_interval++;
+    if (dk_interval==255) {
+        dk_flag=1;
+        dk_interval=0;
+    }
     // FM synthesis
     for (i=0;i<NUM_KEYS;i++) {
-        temp = phase_accum_FM[i]>>24;
-   		if (button_pressed_in[i] || ramp_flag==-1) {
+        if (ramp_flag[i])
+        {
+            dk_state_fm[i] = fm_depth; 
+            dk_state_main[i] = onefix16; 
+            attack_state_fm[i] = fm_depth; 
+            attack_state_main[i] = onefix16; 
+        }
+    
+         if (dk_flag) {
+            dk_state_fm_temp = dk_state_fm[i];
+            dk_state_main_temp = dk_state_main[i];
+            attack_state_fm_temp = attack_state_fm[i];
+            attack_state_main_temp = attack_state_main[i];
+            dk_state_fm_temp = multfix16(dk_state_fm_temp, dk_fm) ;
+            dk_state_main_temp = multfix16(dk_state_main_temp, dk_main) ;
+            attack_state_fm_temp = multfix16(attack_state_fm_temp, attack_fm);
+            attack_state_main_temp = multfix16(attack_state_main_temp, attack_main);
+            env_fm[i] = multfix16(fm_depth-attack_state_fm_temp, dk_state_fm_temp) ;
+            env_main[i] = multfix16(onefix16-attack_state_main_temp, dk_state_main_temp) ;
+            dk_state_fm[i] = dk_state_fm_temp;
+            dk_state_main[i] = dk_state_main_temp;
+            attack_state_fm[i] = attack_state_fm_temp;
+            attack_state_main[i] = attack_state_main_temp;
+        }
+        
+   		if (button_pressed_in[i] || ramp_flag[i]==0) {
             phase_accum_FM[i] += phase_incr_FM[i];
        	    //phase_accum_main[i] += phase_incr_main[i] + ((unsigned int)sin_table[phase_accum_FM[i]>>24]);
-            phase_accum_main[i] += phase_incr_main[i] + multfix16(float2fix16(0.5),sin_table[phase_accum_FM[i]>>24]);
-            temp2 = phase_accum_main[i]>>24;
-		    DAC_data += fix2int16(sin_table[temp2]);
+            phase_accum_main[i] += phase_incr_main[i] + multfix16(env_fm[i],sin_table[phase_accum_FM[i]>>24]);
+		    DAC_data += ((fix2int16(env_main[i]<<9))*fix2int16(sin_table[phase_accum_main[i]>>24])>>9);
+            //DAC_data += fix2int16(sin_table[phase_accum_main[i]>>24]);
 		    num_keys_pressed++;
     	}
     }
@@ -138,17 +187,7 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     if (num_keys_pressed) {
         DAC_data = DAC_data/num_keys_pressed;
     }
-
-    ramp_counter += ramp_flag;
-    if (ramp_counter <= 0) {
-        ramp_counter = 0;
-        ramp_flag = 0;
-    }
-    if (ramp_counter >= 511) {
-        ramp_counter = 511;
-        ramp_flag=0;
-    }
-  
+    
     delay_counter++;
     if (delay_counter == DELAY_RAMP_PERIOD) {
         current_flanger_delay += flange_flag;
@@ -182,34 +221,27 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     // CS low to start transaction
      mPORTBClearBits(BIT_4); // start transaction
     // write to spi2 
-    WriteSPI2( DAC_config_chan_A | ((ramp_counter*(DAC_data+delay_signal))>>10)+2048);
+    WriteSPI2( DAC_config_chan_A | ((DAC_data+delay_signal)>>1)+2048);
     while (SPI2STATbits.SPIBUSY); // wait for end of transaction
     // CS high
     mPORTBSetBits(BIT_4); // end transaction
-}  // end ISR TIMER2
+}// end ISR TIMER2
 
 static PT_THREAD (protothread_read_inputs(struct pt *pt))
 {
 	PT_BEGIN(pt);
-	static int none_pressed;
-	static int none_pressed_old;
     static int pressed_old[NUM_KEYS];
 	while (1) {
 		PT_YIELD_TIME_msec(5);
-		none_pressed_old = none_pressed;
-		none_pressed = 1;
         int i;
 		for (i=0; i<NUM_KEYS; i++) {
             pressed_old[i] = button_pressed_in[i];
             button_pressed_in[i] = button_pressed[i];
+            ramp_flag[i]=0;
 			if (button_pressed_in[i]) {
-				none_pressed=0;
-				//ramp up if nothing was pressed before and now something is pressed, indicating a new sound 
-				if (none_pressed_old) {
-					ramp_flag=1;
-				}
-                
+				//ramp up if nothing was pressed before and now something is pressed, indicating a new sound
                 if (!pressed_old[i]) {
+                    ramp_flag[i] = 1;
                     //record time of press/release and which key was pressed/released
                     if (!repeat_mode_on) {
                         keypresses[keypress_count]=PT_GET_TIME();
@@ -230,9 +262,6 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
                 }
 
 			}
-		}
-		if (none_pressed) {
-            ramp_flag=-1;
 		}
 
 	}
@@ -378,8 +407,8 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
             tft_fillRoundRect(0, 90, 400, 60, 1, ILI9340_BLACK);
             tft_setCursor(0,90);
             tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-            //sprintf(buffer, "%d", button_pressed[0]);
-            sprintf(buffer, "%d %d %d %d %d %d", keypresses[0], keypresses[1], keypresses[2], keypresses[3], keypresses[4], keypresses[5]);
+            sprintf(buffer, "%1.4f   %1.4f  %d", fix2float16(attack_state_main[0]), fix2float16(dk_state_main[0]), dk_interval);
+            //sprintf(buffer, "%d %d %d %d %d %d", keypresses[0], keypresses[1], keypresses[2], keypresses[3], keypresses[4], keypresses[5]);
             tft_writeString(buffer);
         }
         counter++;
