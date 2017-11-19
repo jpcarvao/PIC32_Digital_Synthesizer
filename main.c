@@ -80,22 +80,21 @@ volatile float tempo;
 
 #define MAX_FLANGER_SIZE 2048
 volatile short flange_buffer[MAX_FLANGER_SIZE];
-#define DELAY_RAMP_PERIOD 2000
-volatile unsigned int current_flanger_delay = 2000;
+#define DELAY_RAMP_PERIOD 200
+volatile unsigned int current_flanger_delay = 0;
 volatile int flange_counter = 0;
 volatile int delay_counter = 0;
 volatile int flange_flag=-1;
-#define FLANGE_SWEEP_FREQ 5
-volatile unsigned int phase_accum_flange = 0;
-volatile unsigned int phase_incr_flange = FLANGE_SWEEP_FREQ*two32/Fs;
+
+
 volatile short delay_signal;
 volatile int delay_on=0;
 
-volatile fix16 dk_fm=float2fix16(0.97), attack_fm=float2fix16(0.05);
+volatile fix16 dk_fm=float2fix16(0.99), attack_fm=float2fix16(0.02);
 volatile fix16 dk_main=float2fix16(0.97), attack_main=float2fix16(0.05);
 volatile fix16 dk_state_fm[NUM_KEYS], attack_state_fm[NUM_KEYS];
 volatile fix16 dk_state_main[NUM_KEYS], attack_state_main[NUM_KEYS];
-volatile fix16 fm_depth=float2fix16(0.5);
+volatile fix16 fm_depth=float2fix16(2);
 volatile fix16 env_fm[NUM_KEYS] = {0,0};
 volatile fix16 env_main[NUM_KEYS] = {0,0};
 
@@ -107,6 +106,8 @@ volatile fix16 attack_state_fm_temp;
 volatile fix16 attack_state_main_temp;
 
 volatile int dk_interval = 0;
+
+volatile int sustain = 1;
 
 
 /* *** Keypad Macros *** */
@@ -167,9 +168,16 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
             attack_state_fm_temp = multfix16(attack_state_fm_temp, attack_fm);
             attack_state_main_temp = multfix16(attack_state_main_temp, attack_main);
             env_fm[i] = multfix16(fm_depth-attack_state_fm_temp, dk_state_fm_temp) ;
-            env_main[i] = multfix16(onefix16-attack_state_main_temp, dk_state_main_temp) ;
-            dk_state_fm[i] = dk_state_fm_temp;
-            dk_state_main[i] = dk_state_main_temp;
+            
+            if (sustain && button_pressed_in[i]) {
+                dk_state_main[i]=onefix16;
+                dk_state_fm[i]=fm_depth;
+            }
+            else {
+                dk_state_main[i] = dk_state_main_temp;
+                dk_state_fm[i] = dk_state_fm_temp;
+            }
+            env_main[i] = multfix16(onefix16-attack_state_main_temp, dk_state_main_temp);
             attack_state_fm[i] = attack_state_fm_temp;
             attack_state_main[i] = attack_state_main_temp;
         }
@@ -178,7 +186,7 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
             phase_accum_FM[i] += phase_incr_FM[i];
        	    //phase_accum_main[i] += phase_incr_main[i] + ((unsigned int)sin_table[phase_accum_FM[i]>>24]);
             phase_accum_main[i] += phase_incr_main[i] + multfix16(env_fm[i],sin_table[phase_accum_FM[i]>>24]);
-		    DAC_data += ((fix2int16(env_main[i]<<9))*fix2int16(sin_table[phase_accum_main[i]>>24])>>9);
+		    DAC_data += ((fix2int16(env_main[i]<<9))*fix2int16(sin_table[phase_accum_main[i]>>24]))>>9;
             //DAC_data += fix2int16(sin_table[phase_accum_main[i]>>24]);
 		    num_keys_pressed++;
     	}
@@ -193,10 +201,10 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
         current_flanger_delay += flange_flag;
         delay_counter = 0;
     }
-    if (current_flanger_delay == 0){
+    if (current_flanger_delay <= 0){
         flange_flag = 1;
     }
-    if (current_flanger_delay >= MAX_FLANGER_SIZE) {
+    if (current_flanger_delay >= MAX_FLANGER_SIZE/2) {
         flange_flag = -1; 
     }
     
@@ -206,7 +214,7 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
         flange_counter = 0;
         delay_on=1;
     }
-    flange_buffer[flange_counter] = (ramp_counter*DAC_data)>>9;
+    flange_buffer[flange_counter] = DAC_data;
     delay_index = 0;
     if (delay_on){
         delay_index = flange_counter - current_flanger_delay;
@@ -222,6 +230,7 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
      mPORTBClearBits(BIT_4); // start transaction
     // write to spi2 
     WriteSPI2( DAC_config_chan_A | ((DAC_data+delay_signal)>>1)+2048);
+    //WriteSPI2( DAC_config_chan_A | (delay_signal)+2048);
     while (SPI2STATbits.SPIBUSY); // wait for end of transaction
     // CS high
     mPORTBSetBits(BIT_4); // end transaction
@@ -407,7 +416,7 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
             tft_fillRoundRect(0, 90, 400, 60, 1, ILI9340_BLACK);
             tft_setCursor(0,90);
             tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-            sprintf(buffer, "%1.4f   %1.4f  %d", fix2float16(attack_state_main[0]), fix2float16(dk_state_main[0]), dk_interval);
+            sprintf(buffer, "%d", current_flanger_delay);
             //sprintf(buffer, "%d %d %d %d %d %d", keypresses[0], keypresses[1], keypresses[2], keypresses[3], keypresses[4], keypresses[5]);
             tft_writeString(buffer);
         }
