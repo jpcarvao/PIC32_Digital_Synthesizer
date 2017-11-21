@@ -10,7 +10,11 @@
 #include "pt_cornell_1_2.h"
 #include "tft_master.h"
 #include "tft_gfx.h"
+#include "port_expander_brl4.h"
 #include <math.h>
+
+#define start_spi2_critical_section INTEnable(INT_T2, 0);
+#define end_spi2_critical_section INTEnable(INT_T2, 1);
 
 #define DAC_config_chan_A 0b0011000000000000
 #define DAC_config_chan_B 0b1011000000000000
@@ -107,7 +111,9 @@ volatile fix16 attack_state_main_temp;
 
 volatile int dk_interval = 0;
 
-volatile int sustain = 1;
+volatile int sustain = 0;
+
+volatile int button_input;
 
 
 /* *** Keypad Macros *** */
@@ -224,15 +230,17 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     }
     delay_signal = flange_buffer[delay_index];
 
-    
+    int junk;
     // === Channel A =============
     // CS low to start transaction
+    SPI_Mode16();
      mPORTBClearBits(BIT_4); // start transaction
     // write to spi2 
     WriteSPI2( DAC_config_chan_A | ((DAC_data+delay_signal)>>1)+2048);
     //WriteSPI2( DAC_config_chan_A | (delay_signal)+2048);
     while (SPI2STATbits.SPIBUSY); // wait for end of transaction
     // CS high
+    junk = ReadSPI2(); 
     mPORTBSetBits(BIT_4); // end transaction
 }// end ISR TIMER2
 
@@ -302,52 +310,49 @@ static PT_THREAD(protothread_read_repeat(struct pt *pt))
 
 static PT_THREAD (protothread_read_button(struct pt *pt))
 {
-    PT_BEGIN(pt);
-    static int pressed[NUM_KEYS]; 
-    
-    mPORTBSetPinsDigitalIn(BIT_3);
-    mPORTBSetPinsDigitalIn(BIT_8);
-    mPORTBSetPinsDigitalIn(BIT_7);  
-    static int i;
-    while(1) {
-        PT_YIELD_TIME_msec(30);
-        pressed[0] = mPORTBReadBits(BIT_3);
-        pressed[1] = mPORTBReadBits(BIT_7);
-           
-        for (i=0;i<NUM_KEYS;i++) {
-            if (pressed[i]) {
-                button_pressed[i]=1;
-            }
-            else {
-                button_pressed[i]=0;
-            }
-//            if (!state[i]) {
-//                if (pressed[i])
-//                {
-//                    state[i]=1;
-//                    //button_pressed[i]=1;
-//                    //ramp_flag=1;
-//                }
+//    PT_BEGIN(pt);
+//    static int pressed[NUM_KEYS]; 
+//    
+//    mPORTBSetPinsDigitalIn(BIT_3);
+//    mPORTBSetPinsDigitalIn(BIT_8);
+//    mPORTBSetPinsDigitalIn(BIT_7);  
+//    static int i;
+//    while(1) {
+//        PT_YIELD_TIME_msec(30);
+//        pressed[0] = mPORTBReadBits(BIT_3);
+//        pressed[1] = mPORTBReadBits(BIT_7);
+//           
+//        for (i=0;i<NUM_KEYS;i++) {
+//            if (pressed[i]) {
+//                button_pressed[i]=1;
 //            }
 //            else {
-//                if (!pressed[i])
-//                {
-//                    state[i]=0;
-//                    //button_pressed[i]=0;
-//                    //ramp_flag=-1;
-//                }
+//                button_pressed[i]=0;
 //            }
+//    }
+//    PT_END(pt);
+    
+    PT_BEGIN(pt);
+    static int pressed[NUM_KEYS];
+    static int input;
+    start_spi2_critical_section;
+    initPE();
+    mPortYSetPinsIn(BIT_0 | BIT_1);
+    //mPortYEnablePullUp(BIT_0 | BIT_1);
+    end_spi2_critical_section ;
+        
+    while(1) {
+        PT_YIELD_TIME_msec(30);
+        start_spi2_critical_section;
+        input = readPE(GPIOY);
+        end_spi2_critical_section;
+        button_input = input;
+        int i;
+        for (i=0; i<NUM_KEYS;i++) {
+            //ensure that important bit is least significant, then mask to make 
+            //sure that entire number is 1 or 0
+            button_pressed[i] = (input>>i) & 1;
         }
-//        tft_fillRoundRect(0, 50, 400, 40, 1, ILI9340_BLACK);
-//        tft_setCursor(0,50);
-//        tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-//        sprintf(buffer, "%d\n", ramp_flag);
-//        tft_writeString(buffer);
-//        tft_fillRoundRect(0, 100, 400, 40, 1, ILI9340_BLACK);
-//        tft_setCursor(0,100);
-//        tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-//        sprintf(buffer, "%d\n", button_pressed[1]);
-//        tft_writeString(buffer);
     }
     PT_END(pt);
 }
@@ -367,7 +372,7 @@ static PT_THREAD (protothread_repeat_buttons(struct pt *pt))
         for (i = 0; i < valid_size; i++) {
             yield_length = keypresses[i+1] - keypresses[i];
             if (!button_pressed[keypress_ID[i]]) {
-                button_pressed[keypress_ID[i]] = 1;
+                button_pressed[keypress_ID[i]] = 1; 
             }
             else {
                 button_pressed[keypress_ID[i]] = 0;
@@ -416,7 +421,7 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
             tft_fillRoundRect(0, 90, 400, 60, 1, ILI9340_BLACK);
             tft_setCursor(0,90);
             tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-            sprintf(buffer, "%d", current_flanger_delay);
+            sprintf(buffer, "%d", button_input);
             //sprintf(buffer, "%d %d %d %d %d %d", keypresses[0], keypresses[1], keypresses[2], keypresses[3], keypresses[4], keypresses[5]);
             tft_writeString(buffer);
         }
