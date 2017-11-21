@@ -25,7 +25,8 @@
 
 // === 16:16 fixed point macros ==========================================
 typedef signed int fix16 ;
-#define multfix16(a,b) ((fix16)(((( signed long long)(a))*(( signed long long)(b)))>>16)) //multiply two fixed 16:16
+#define multfix16(a,b) ((fix16)(((( signed long long)(a))* \
+        (( signed long long)(b)))>>16)) //multiply two fixed 16:16
 #define float2fix16(a) ((fix16)((a)*65536.0)) // 2^16
 #define fix2float16(a) ((float)(a)/65536.0)
 #define fix2int16(a)    ((int)((a)>>16))
@@ -36,13 +37,13 @@ typedef signed int fix16 ;
 #define onefix16 0x00010000 // int2fix16(1)
 
 
-
 volatile SpiChannel spiChn = SPI_CHANNEL2 ;	// the SPI channel to use
 // for 60 MHz PB clock use divide-by-3
 volatile int spiClkDiv = 2 ; // 20 MHz DAC clock
 
 // === thread structures ============================================
-static struct pt pt_read_button, pt_read_inputs, pt_read_repeat, pt_freq_tune, pt_repeat_buttons;  
+static struct pt pt_read_button, pt_read_inputs, pt_read_repeat, pt_freq_tune, 
+        pt_repeat_buttons, pt_ui;  
 
 // DDS sine table
 #define SINE_TABLE_SIZE 256
@@ -82,6 +83,7 @@ volatile int repeat_mode_on = 0;
 volatile int valid_size;
 volatile float tempo;
 
+// Flanging Stuff (Phase Shifting)
 #define MAX_FLANGER_SIZE 2048
 volatile short flange_buffer[MAX_FLANGER_SIZE];
 #define DELAY_RAMP_PERIOD 200
@@ -90,10 +92,10 @@ volatile int flange_counter = 0;
 volatile int delay_counter = 0;
 volatile int flange_flag=-1;
 
-
 volatile short delay_signal;
 volatile int delay_on=0;
 
+// FM Synthesis Stuff
 volatile fix16 dk_fm=float2fix16(0.99), attack_fm=float2fix16(0.02);
 volatile fix16 dk_main=float2fix16(0.97), attack_main=float2fix16(0.05);
 volatile fix16 dk_state_fm[NUM_KEYS], attack_state_fm[NUM_KEYS];
@@ -101,8 +103,6 @@ volatile fix16 dk_state_main[NUM_KEYS], attack_state_main[NUM_KEYS];
 volatile fix16 fm_depth=float2fix16(2);
 volatile fix16 env_fm[NUM_KEYS] = {0,0};
 volatile fix16 env_main[NUM_KEYS] = {0,0};
-
-
 
 volatile fix16 dk_state_fm_temp;
 volatile fix16 dk_state_main_temp;
@@ -130,7 +130,9 @@ volatile int button_input;
 
 #define ONE_SECOND 1000  // yield macro 
 
-
+// UI STUFF
+volatile int flanger_on;
+volatile int analog_noise_on;
 /* Auxiliary Function definitions */
 void adc_config(void);
 
@@ -202,34 +204,36 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
         DAC_data = DAC_data/num_keys_pressed;
     }
     
-    delay_counter++;
-    if (delay_counter == DELAY_RAMP_PERIOD) {
-        current_flanger_delay += flange_flag;
-        delay_counter = 0;
-    }
-    if (current_flanger_delay <= 0){
-        flange_flag = 1;
-    }
-    if (current_flanger_delay >= MAX_FLANGER_SIZE/2) {
-        flange_flag = -1; 
-    }
-    
-    flange_counter++;
-    // MAX_FLANGER_SIZE-1 to avoid negative index in keys_pressed[i]
-    if (flange_counter > MAX_FLANGER_SIZE-1) {
-        flange_counter = 0;
-        delay_on=1;
-    }
-    flange_buffer[flange_counter] = DAC_data;
-    delay_index = 0;
-    if (delay_on){
-        delay_index = flange_counter - current_flanger_delay;
-        if (delay_index < 0) {
-            delay_index += MAX_FLANGER_SIZE;
+    if (flanger_on) {
+        delay_counter++;
+        if (delay_counter == DELAY_RAMP_PERIOD) {
+            current_flanger_delay += flange_flag;
+            delay_counter = 0;
         }
-    }
-    delay_signal = flange_buffer[delay_index];
+        if (current_flanger_delay <= 0){
+            flange_flag = 1;
+        }
+        if (current_flanger_delay >= MAX_FLANGER_SIZE/2) {
+            flange_flag = -1; 
+        }
 
+        flange_counter++;
+        // MAX_FLANGER_SIZE-1 to avoid negative index in keys_pressed[i]
+        if (flange_counter > MAX_FLANGER_SIZE-1) {
+            flange_counter = 0;
+            delay_on=1;
+        }
+        flange_buffer[flange_counter] = DAC_data;
+        delay_index = 0;
+        if (delay_on){
+            delay_index = flange_counter - current_flanger_delay;
+            if (delay_index < 0) {
+                delay_index += MAX_FLANGER_SIZE;
+            }
+        }
+        delay_signal = flange_buffer[delay_index];
+    }    
+        
     int junk;
     // === Channel A =============
     // CS low to start transaction
@@ -430,6 +434,64 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
     PT_END(pt);
 }
 
+/* Thread that Controls the User Interface */
+static PT_THREAD (protothread_ui(struct pt *pt))
+{
+    PT_BEGIN(pt);
+    char buffer[256];
+    mPORTASetPinsDigitalIn(BIT_1);  // flanger_on pin
+    mPORTASetPinsDigitalIn(BIT_0);  // analog_noise pin -- need double pull double throw switch
+    static int counter;
+    while(1) {
+        PT_YIELD_TIME_msec(30);
+        flanger_on = mPORTAReadBits(BIT_1);
+        analog_noise_on = mPORTAReadBits(BIT_0);
+        // print every 500 ms to prevent synthesis failure
+        if (counter%50) {
+            // flanger print ==================================================
+            tft_fillRoundRect(0, 40, 400, 60, 1, ILI9340_BLACK);
+            tft_setCursor(1,40);
+            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(2);
+            if (flanger_on){
+                sprintf(buffer, "Flanger: on");
+            }
+            else {
+                sprintf(buffer, "Flanger: off" );
+            }
+            tft_writeString(buffer);
+            
+            // repeat mode print ==============================================
+            tft_fillRoundRect(0, 60, 400, 60, 1, ILI9340_BLACK);
+            tft_setCursor(1,60);
+            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(2);
+            if (repeat_mode_on) {
+                sprintf(buffer, "Repeat Mode: on");
+            }
+            else {
+                sprintf(buffer, "Repeat Mode: off");
+            }
+            tft_writeString(buffer);
+            
+            // analog noise print =============================================
+            tft_fillRoundRect(0, 75, 400, 60, 1, ILI9340_BLACK);
+            tft_setCursor(1,75);
+            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(2);
+            if (analog_noise_on) {
+                sprintf(buffer, "Analog Noise: on");
+            }
+            else {
+                sprintf(buffer, "Analog Noise: off");
+            }
+            tft_writeString(buffer);
+            
+            // tempo display ==================================================
+            
+        }
+        counter++;
+    }
+    PT_END(pt);
+}
+
 void adc_config(void)
 {
     CloseADC10();  // ensure the ADC is off before setting the configuration
@@ -525,6 +587,7 @@ void main(void)
     PT_INIT(&pt_freq_tune);
     PT_INIT(&pt_read_repeat);
     PT_INIT(&pt_repeat_buttons);
+    PT_INIT(&pt_ui);
     // scheduling loop 
     while(1) {
         if (!repeat_mode_on){
@@ -536,5 +599,6 @@ void main(void)
         PT_SCHEDULE(protothread_read_inputs(&pt_read_inputs));
         PT_SCHEDULE(protothread_freq_tune(&pt_freq_tune));
         PT_SCHEDULE(protothread_read_repeat(&pt_read_repeat));
+        PT_SCHEDULE(protothread_ui(&pt_ui));
     }    
 }  // main
