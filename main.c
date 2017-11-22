@@ -314,28 +314,6 @@ static PT_THREAD(protothread_read_repeat(struct pt *pt))
 
 static PT_THREAD (protothread_read_button(struct pt *pt))
 {
-//    PT_BEGIN(pt);
-//    static int pressed[NUM_KEYS]; 
-//    
-//    mPORTBSetPinsDigitalIn(BIT_3);
-//    mPORTBSetPinsDigitalIn(BIT_8);
-//    mPORTBSetPinsDigitalIn(BIT_7);  
-//    static int i;
-//    while(1) {
-//        PT_YIELD_TIME_msec(30);
-//        pressed[0] = mPORTBReadBits(BIT_3);
-//        pressed[1] = mPORTBReadBits(BIT_7);
-//           
-//        for (i=0;i<NUM_KEYS;i++) {
-//            if (pressed[i]) {
-//                button_pressed[i]=1;
-//            }
-//            else {
-//                button_pressed[i]=0;
-//            }
-//    }
-//    PT_END(pt);
-    
     PT_BEGIN(pt);
     static int pressed[NUM_KEYS];
     static int input;
@@ -384,13 +362,6 @@ static PT_THREAD (protothread_repeat_buttons(struct pt *pt))
             if (i != valid_size-1) {
                 PT_YIELD_TIME_msec(((int)yield_length*tempo));
             }
-//            if (i==1) {
-//            tft_fillRoundRect(0, 50, 400, 60, 1, ILI9340_BLACK);
-//            tft_setCursor(0,50);
-//            tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-//            sprintf(buffer, "%d", yield_length);
-//            tft_writeString(buffer);
-//            }
         }
     }
     PT_END(pt);
@@ -442,12 +413,14 @@ static PT_THREAD (protothread_ui(struct pt *pt))
     mPORTASetPinsDigitalIn(BIT_1);  // flanger_on pin
     mPORTASetPinsDigitalIn(BIT_0);  // analog_noise pin -- need double pull double throw switch
     static int counter;
+    static short modified_tempo;
+    static short modified_pitch;
     while(1) {
-        PT_YIELD_TIME_msec(30);
+        PT_YIELD_TIME_msec(5);
         flanger_on = mPORTAReadBits(BIT_1);
         analog_noise_on = mPORTAReadBits(BIT_0);
         // print every 500 ms to prevent synthesis failure
-        if (counter%50) {
+        if (counter%20) {
             // flanger print ==================================================
             tft_fillRoundRect(0, 40, 400, 60, 1, ILI9340_BLACK);
             tft_setCursor(1,40);
@@ -456,7 +429,7 @@ static PT_THREAD (protothread_ui(struct pt *pt))
                 sprintf(buffer, "Flanger: on");
             }
             else {
-                sprintf(buffer, "Flanger: off" );
+                sprintf(buffer, "Flanger: off");
             }
             tft_writeString(buffer);
             
@@ -484,8 +457,16 @@ static PT_THREAD (protothread_ui(struct pt *pt))
             }
             tft_writeString(buffer);
             
-            // tempo display ==================================================
+            // Tempo Display ==================================================
+            // divide by 4 for visibility improvement
+            modified_tempo = ReadADC10(0)>>3;  
+            tft_fillRoundRect(75, 100, 255, 25, 1, ILI9340_BLACK);
+            tft_fillRoundRect(75, 100, modified_tempo, 25, 1, ILI9340_RED );
             
+            // Pitch Display ==================================================
+            modified_pitch = frequencies[1]>>3;
+            tft_fillRoundRect(75, 125, 255, 25, 1, ILI9340_BLACK);
+            tft_fillRoundRect(75, 125, modified_pitch, 25, 1, ILI9340_GREEN );
         }
         counter++;
     }
