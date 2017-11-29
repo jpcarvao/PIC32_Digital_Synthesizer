@@ -88,9 +88,9 @@ volatile fix16 attack_state_main_temp;
 
 volatile int dk_interval = 0;
 
-volatile int sustain = 0;
+volatile int sustain = 1;
 
-volatile int button_input;
+volatile int button_input=0;
 
 // UI STUFF
 volatile int flanger_on;
@@ -166,7 +166,7 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
         DAC_data = DAC_data/num_keys_pressed;
     }
     
-    if (flanger_on) {
+    if (flanger_on) {  // toggled by button in pt_ui
         delay_counter++;
         if (delay_counter == DELAY_RAMP_PERIOD) {
             current_flanger_delay += flange_flag;
@@ -243,7 +243,6 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
                         keypress_count++;
                     }
                 }
-
 			}
 		}
 
@@ -372,14 +371,30 @@ static PT_THREAD (protothread_ui(struct pt *pt))
 {
     PT_BEGIN(pt);
     char buffer[256];
-    mPORTASetPinsDigitalIn(BIT_1);  // flanger_on pin
+    mPORTBSetPinsDigitalIn(BIT_13);  // flanger_on pin
     mPORTASetPinsDigitalIn(BIT_0);  // analog_noise pin -- need double pull double throw switch
     static int counter;
     static short modified_tempo;
     static short modified_pitch;
+    static int freq_adc = 0;
+    static int flange_state = 0;  // state of flanger button state machine
+    static int flange_pressed;    // reads input for flanger button
     while(1) {
         PT_YIELD_TIME_msec(5);
-        flanger_on = mPORTAReadBits(BIT_1);
+        flange_pressed = mPORTBReadBits(BIT_13);
+        // flanger button state machine ======================================= 
+        if(!flange_state) {
+            if (flange_pressed) {  
+                flange_state = 1;
+                // toggle flanger_on 
+                if (!flanger_on) flanger_on = 1;
+                else flanger_on = 0;  
+            }
+        }
+        else if (!flange_pressed) {
+                flange_state = 0;
+        }
+        
         analog_noise_on = mPORTAReadBits(BIT_0);
         // print every 500 ms to prevent synthesis failure
         if (counter%20) {
@@ -429,6 +444,14 @@ static PT_THREAD (protothread_ui(struct pt *pt))
             modified_pitch = frequencies[1]>>3;
             tft_fillRoundRect(75, 125, 255, 25, 1, ILI9340_BLACK);
             tft_fillRoundRect(75, 125, modified_pitch, 25, 1, ILI9340_GREEN );
+            
+            // ADC 2 Test
+            freq_adc = ReadADC10(1);
+            tft_fillRoundRect(0, 150, 400, 60, 1, ILI9340_BLACK);
+            tft_setCursor(1,150);
+            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(2);
+            sprintf(buffer, "freq_adc (AN5) : %d", freq_adc);
+            tft_writeString(buffer);
         }
         counter++;
     }
@@ -437,19 +460,23 @@ static PT_THREAD (protothread_ui(struct pt *pt))
 
 void adc_config(void)
 {
-    CloseADC10();  // ensure the ADC is off before setting the configuration
+    CloseADC10(); // ensure the ADC is off before setting the configuration
     // define setup parameters for OpenADC10
-    #define PARAM1  ADC_FORMAT_INTG16 | ADC_CLK_AUTO | ADC_AUTO_SAMPLING_ON
-    #define PARAM2  ADC_VREF_AVDD_AVSS | ADC_OFFSET_CAL_DISABLE | ADC_SCAN_OFF \
-            | ADC_SAMPLES_PER_INT_1 | ADC_ALT_BUF_OFF | ADC_ALT_INPUT_OFF
-    #define PARAM3 ADC_CONV_CLK_PB | ADC_SAMPLE_TIME_5 | ADC_CONV_CLK_Tcy2
-    // set AN11 and  as analog inputs
-    #define PARAM4  ENABLE_AN11_ANA  
-    // do not assign channels to scan
-    #define PARAM5  SKIP_SCAN_ALL
-    // configure to sample AN11 
-    SetChanADC10( ADC_CH0_NEG_SAMPLEA_NVREF | ADC_CH0_POS_SAMPLEA_AN11 );
-    // configure ADC using the parameters defined above
+    #define PARAM1  ADC_FORMAT_INTG16 | ADC_CLK_AUTO | ADC_AUTO_SAMPLING_ON 
+    // define setup parameters for OpenADC10
+    #define PARAM2  ADC_VREF_AVDD_AVSS | ADC_OFFSET_CAL_DISABLE \
+            | ADC_SCAN_OFF | ADC_SAMPLES_PER_INT_2 | ADC_ALT_BUF_OFF \
+            | ADC_ALT_INPUT_ON
+    // Define setup parameters for OpenADC10
+    #define PARAM3 ADC_CONV_CLK_PB | ADC_SAMPLE_TIME_15 | ADC_CONV_CLK_Tcy 
+    // define setup parameters for OpenADC10
+    #define PARAM4 ENABLE_AN1_ANA | ENABLE_AN5_ANA 
+    // define setup parameters for OpenADC10
+    #define PARAM5 SKIP_SCAN_ALL 
+    // configure to sample AN5 and AN1 on MUX A and B
+    SetChanADC10( ADC_CH0_NEG_SAMPLEA_NVREF | ADC_CH0_POS_SAMPLEA_AN1 \
+            | ADC_CH0_NEG_SAMPLEB_NVREF | ADC_CH0_POS_SAMPLEB_AN5 );
+    // configure ADC 
     OpenADC10( PARAM1, PARAM2, PARAM3, PARAM4, PARAM5 ); 
 
     EnableADC10(); // Enable the ADC
