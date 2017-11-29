@@ -20,7 +20,7 @@ volatile int spiClkDiv = 2 ; // 20 MHz DAC clock
 
 // === thread structures ============================================
 static struct pt pt_read_button, pt_read_inputs, pt_read_repeat, pt_freq_tune, 
-        pt_repeat_buttons, pt_ui;  
+        pt_repeat_buttons, pt_ui, pt_ui_print;  
 
 // DDS sine table
 #define SINE_TABLE_SIZE 256
@@ -88,13 +88,15 @@ volatile fix16 attack_state_main_temp;
 
 volatile int dk_interval = 0;
 
-volatile int sustain = 1;
+volatile int sustain = 1;  // sustain on at startup
 
 volatile int button_input=0;
 
 // UI STUFF
 volatile int flanger_on;
 volatile int analog_noise_on;
+static int fm_on = 1;     // donates if fm synth is on (on at startup)
+
 /* Auxiliary Function definitions */
 void adc_config(void);
 
@@ -349,12 +351,19 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
             //frequencies[j] = ((int) frequencies_set[j] * scale);
             frequencies[j] = ((int) frequencies_set[j] * 1);
             phase_incr_main[j]  = frequencies[j]*two32/Fs;
-            frequencies_FM[j] = 3*frequencies[j];
-            phase_incr_FM[j]  = frequencies_FM[j]*two32/Fs;
+            // fm synth 
+            if (fm_on) {
+                frequencies_FM[j] = 3*frequencies[j];
+                phase_incr_FM[j]  = frequencies_FM[j]*two32/Fs;
+            }
+            else {
+                frequencies_FM[j] = 0;
+                phase_incr_FM[j]  = 0;
+            }
         }
         // print every 500 ms -- will be removed later anyway 
         if (counter%50) {  
-            tft_fillRoundRect(0, 90, 400, 60, 1, ILI9340_BLACK);
+            //tft_fillRoundRect(0, 90, 400, 60, 1, ILI9340_BLACK);
             tft_setCursor(0,90);
             tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
             sprintf(buffer, "%d", button_input);
@@ -366,6 +375,20 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
     PT_END(pt);
 }
 
+// UI globals
+static short modified_tempo;
+static short modified_pitch;
+static int freq_adc = 0;
+// flange stuff
+static int flange_state = 0;  // state of flanger button state machine
+static int flange_pressed;    // reads input for flanger button
+// fm stuff 
+static int fm_state = 1;  // fm synthesis on at start up 
+static int fm_pressed;    // reads input for fm 
+// sustain stuff 
+static int sus_state = 1; // sustain on at start up
+static int sus_pressed;   // reads input for sustain
+
 /* Thread that Controls the User Interface */
 static PT_THREAD (protothread_ui(struct pt *pt))
 {
@@ -373,12 +396,8 @@ static PT_THREAD (protothread_ui(struct pt *pt))
     char buffer[256];
     mPORTBSetPinsDigitalIn(BIT_13);  // flanger_on pin
     mPORTASetPinsDigitalIn(BIT_0);  // analog_noise pin -- need double pull double throw switch
-    static int counter;
-    static short modified_tempo;
-    static short modified_pitch;
-    static int freq_adc = 0;
-    static int flange_state = 0;  // state of flanger button state machine
-    static int flange_pressed;    // reads input for flanger button
+    mPORTBSetPinsDigitalIn(BIT_10);  // fm_synth 
+    mPORTASetPinsDigitalIn(BIT_0);  // sustain
     while(1) {
         PT_YIELD_TIME_msec(5);
         flange_pressed = mPORTBReadBits(BIT_13);
@@ -396,64 +415,118 @@ static PT_THREAD (protothread_ui(struct pt *pt))
         }
         
         analog_noise_on = mPORTAReadBits(BIT_0);
-        // print every 500 ms to prevent synthesis failure
-        if (counter%20) {
-            // flanger print ==================================================
-            tft_fillRoundRect(0, 40, 400, 60, 1, ILI9340_BLACK);
-            tft_setCursor(1,40);
-            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(2);
-            if (flanger_on){
-                sprintf(buffer, "Flanger: on");
+        
+        // divide by 4 for visibility improvement
+        modified_tempo = ReadADC10(0)>>3;
+        
+        // pitch display setting
+        modified_pitch = frequencies[1]>>3;
+        // adc 2 test
+        freq_adc = ReadADC10(1);
+        
+        // FM synth button state machine ======================================
+        fm_pressed = mPORTBReadBits(BIT_10); 
+        if(!fm_state) {
+            if (fm_pressed) {  
+                fm_state = 1;
+                // toggle flanger_on 
+                if (!fm_on) fm_on = 1;
+                else fm_on = 0;  
             }
-            else {
-                sprintf(buffer, "Flanger: off");
-            }
-            tft_writeString(buffer);
-            
-            // repeat mode print ==============================================
-            tft_fillRoundRect(0, 60, 400, 60, 1, ILI9340_BLACK);
-            tft_setCursor(1,60);
-            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(2);
-            if (repeat_mode_on) {
-                sprintf(buffer, "Repeat Mode: on");
-            }
-            else {
-                sprintf(buffer, "Repeat Mode: off");
-            }
-            tft_writeString(buffer);
-            
-            // analog noise print =============================================
-            tft_fillRoundRect(0, 75, 400, 60, 1, ILI9340_BLACK);
-            tft_setCursor(1,75);
-            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(2);
-            if (analog_noise_on) {
-                sprintf(buffer, "Analog Noise: on");
-            }
-            else {
-                sprintf(buffer, "Analog Noise: off");
-            }
-            tft_writeString(buffer);
-            
-            // Tempo Display ==================================================
-            // divide by 4 for visibility improvement
-            modified_tempo = ReadADC10(0)>>3;  
-            tft_fillRoundRect(75, 100, 255, 25, 1, ILI9340_BLACK);
-            tft_fillRoundRect(75, 100, modified_tempo, 25, 1, ILI9340_RED );
-            
-            // Pitch Display ==================================================
-            modified_pitch = frequencies[1]>>3;
-            tft_fillRoundRect(75, 125, 255, 25, 1, ILI9340_BLACK);
-            tft_fillRoundRect(75, 125, modified_pitch, 25, 1, ILI9340_GREEN );
-            
-            // ADC 2 Test
-            freq_adc = ReadADC10(1);
-            tft_fillRoundRect(0, 150, 400, 60, 1, ILI9340_BLACK);
-            tft_setCursor(1,150);
-            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(2);
-            sprintf(buffer, "freq_adc (AN5) : %d", freq_adc);
-            tft_writeString(buffer);
         }
-        counter++;
+        else if (!fm_pressed) {
+                fm_state = 0;
+        }
+        
+        // sustain button state machine =======================================
+        sus_pressed = mPORTAReadBits(BIT_0);
+        if(!sus_state) {
+            if (sus_pressed) {  
+                sus_state = 1;
+                // toggle flanger_on 
+                if (!sustain) sustain = 1;
+                else sustain = 0;  
+            }
+        }
+        else if (!sus_pressed) {
+                sus_state = 0;
+        }
+    }
+    PT_END(pt);
+}
+
+static PT_THREAD (protothread_ui_print(struct pt *pt))
+{
+    PT_BEGIN(pt);
+    char buffer[256];
+    while(1) {
+        // print every 500 ms to prevent synthesis failure
+        PT_YIELD_TIME_msec(500);
+        // flanger print ==================================================
+        tft_fillRoundRect(0, 40, 450, 150, 1, ILI9340_BLACK);
+        tft_setCursor(1,40);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        if (flanger_on){
+            sprintf(buffer, "Flanger: on");
+        }
+        else {
+            sprintf(buffer, "Flanger: off");
+        }
+        tft_writeString(buffer);
+
+        // repeat mode print ==================================================
+        //tft_fillRoundRect(0, 60, 400, 60, 1, ILI9340_BLACK);
+        tft_setCursor(1,60);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        if (repeat_mode_on) {
+            sprintf(buffer, "Repeat Mode: on");
+        }
+        else {
+            sprintf(buffer, "Repeat Mode: off");
+        }
+        tft_writeString(buffer);
+
+        // analog noise print =================================================
+        //tft_fillRoundRect(0, 75, 400, 60, 1, ILI9340_BLACK);
+        tft_setCursor(1,75);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        if (analog_noise_on) {
+            sprintf(buffer, "Analog Noise: on");
+        }
+        else {
+            sprintf(buffer, "Analog Noise: off");
+        }
+        tft_writeString(buffer);
+
+        // Tempo Display ======================================================
+          
+        //tft_fillRoundRect(75, 100, 255, 25, 1, ILI9340_BLACK);
+        tft_fillRoundRect(75, 100, modified_tempo, 25, 1, ILI9340_RED );
+
+        // Pitch Display ======================================================
+        //tft_fillRoundRect(75, 125, 255, 25, 1, ILI9340_BLACK);
+        tft_fillRoundRect(75, 125, modified_pitch, 25, 1, ILI9340_GREEN );
+
+        // ADC 2 Test
+        //tft_fillRoundRect(0, 150, 400, 60, 1, ILI9340_BLACK);
+        tft_setCursor(1,155);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        sprintf(buffer, "freq_adc (AN5) : %d", freq_adc);
+        tft_writeString(buffer);
+        
+        // FM synth state display =============================================
+        tft_setCursor(1,170);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        if (fm_on) sprintf(buffer, "FM Synth: on");
+        else sprintf(buffer, "FM Synth: off");
+        tft_writeString(buffer);
+        
+        // Sustain state display 
+        tft_setCursor(1,180);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        if (sustain) sprintf(buffer, "Sustain: on");
+        else sprintf(buffer, "Sustain: off");
+        tft_writeString(buffer);
     }
     PT_END(pt);
 }
@@ -558,6 +631,7 @@ void main(void)
     PT_INIT(&pt_read_repeat);
     PT_INIT(&pt_repeat_buttons);
     PT_INIT(&pt_ui);
+    PT_INIT(&pt_ui_print);
     // scheduling loop 
     while(1) {
         if (!repeat_mode_on){
@@ -570,5 +644,6 @@ void main(void)
         PT_SCHEDULE(protothread_freq_tune(&pt_freq_tune));
         PT_SCHEDULE(protothread_read_repeat(&pt_read_repeat));
         PT_SCHEDULE(protothread_ui(&pt_ui));
+        PT_SCHEDULE(protothread_ui_print(&pt_ui_print));
     }    
 }  // main
