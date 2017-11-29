@@ -444,7 +444,7 @@ void adc_config(void)
             | ADC_SAMPLES_PER_INT_1 | ADC_ALT_BUF_OFF | ADC_ALT_INPUT_OFF
     #define PARAM3 ADC_CONV_CLK_PB | ADC_SAMPLE_TIME_5 | ADC_CONV_CLK_Tcy2
     // set AN11 and  as analog inputs
-    #define PARAM4  ENABLE_AN1_ANA  
+    #define PARAM4  ENABLE_AN11_ANA  
     // do not assign channels to scan
     #define PARAM5  SKIP_SCAN_ALL
     // configure to sample AN11 
