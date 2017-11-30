@@ -388,6 +388,8 @@ static int fm_pressed;    // reads input for fm
 // sustain stuff 
 static int sus_state = 1; // sustain on at start up
 static int sus_pressed;   // reads input for sustain
+// tone stack stuff
+static int stack_on;
 
 /* Thread that Controls the User Interface */
 static PT_THREAD (protothread_ui(struct pt *pt))
@@ -398,6 +400,7 @@ static PT_THREAD (protothread_ui(struct pt *pt))
     mPORTASetPinsDigitalIn(BIT_0);  // analog_noise pin -- need double pull double throw switch
     mPORTBSetPinsDigitalIn(BIT_10);  // fm_synth 
     mPORTASetPinsDigitalIn(BIT_0);  // sustain
+    mPORTASetPinsDigitalIn(BIT_2);  // tone stack on or off
     while(1) {
         PT_YIELD_TIME_msec(5);
         flange_pressed = mPORTBReadBits(BIT_13);
@@ -451,6 +454,8 @@ static PT_THREAD (protothread_ui(struct pt *pt))
         else if (!sus_pressed) {
                 sus_state = 0;
         }
+        // tone stack switch ==================================================
+        stack_on = mPORTAReadBits(BIT_2);
     }
     PT_END(pt);
 }
@@ -463,7 +468,7 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         // print every 500 ms to prevent synthesis failure
         PT_YIELD_TIME_msec(500);
         // flanger print ==================================================
-        tft_fillRoundRect(0, 40, 450, 150, 1, ILI9340_BLACK);
+        tft_fillRoundRect(0, 40, 450, 180, 1, ILI9340_BLACK);
         tft_setCursor(1,40);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         if (flanger_on){
@@ -521,11 +526,18 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         else sprintf(buffer, "FM Synth: off");
         tft_writeString(buffer);
         
-        // Sustain state display 
+        // Sustain state display ==============================================
         tft_setCursor(1,180);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         if (sustain) sprintf(buffer, "Sustain: on");
         else sprintf(buffer, "Sustain: off");
+        tft_writeString(buffer);
+        
+        // tone stack display =================================================
+        tft_setCursor(1,190);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        if (stack_on) sprintf(buffer, "Tone Stack: on %d", stack_on);
+        else sprintf(buffer, "Tone Stack: off");
         tft_writeString(buffer);
     }
     PT_END(pt);
