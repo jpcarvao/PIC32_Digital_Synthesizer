@@ -20,7 +20,8 @@ volatile int spiClkDiv = 2 ; // 20 MHz DAC clock
 
 // === thread structures ============================================
 static struct pt pt_read_button, pt_read_inputs, pt_read_repeat, pt_freq_tune, 
-        pt_repeat_buttons, pt_ui, pt_ui_print;  
+        pt_repeat_buttons, pt_cycle_button, pt_enter_button, pt_ui, 
+        pt_ui_print;  
 
 // DDS sine table
 #define SINE_TABLE_SIZE 256
@@ -252,6 +253,7 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 	PT_END(pt);
 }
 
+
 static PT_THREAD(protothread_read_repeat(struct pt *pt))
 {
     PT_BEGIN(pt);
@@ -274,6 +276,7 @@ static PT_THREAD(protothread_read_repeat(struct pt *pt))
     }
     PT_END(pt);
 }
+
 
 static PT_THREAD (protothread_read_button(struct pt *pt))
 {
@@ -337,6 +340,7 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
     char buffer[256];
     static float scale;
     static int adc_val;
+    static int adc_freq;
     static float scale2;
     static int counter = 0;  // used to decrease rate of printing
     while(1) {
@@ -344,12 +348,13 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
         // adc_val of 502 is 0 for freq modulation
         static int j;
         adc_val = ReadADC10(0);
-        scale = ((float)(1.5*(adc_val-502))/1024.0)+1;
+        adc_freq = ReadADC10(1);
+        scale = ((float)(1.5*(adc_freq-502))/1024.0)+1;
         scale2 = ((float)adc_val/1024.0);
         tempo = scale2*2;
         for (j = 0; j < NUM_KEYS; j++) {
-            //frequencies[j] = ((int) frequencies_set[j] * scale);
-            frequencies[j] = ((int) frequencies_set[j] * 1);
+            frequencies[j] = ((int) frequencies_set[j] * scale);
+            //frequencies[j] = ((int) frequencies_set[j] * 1);
             phase_incr_main[j]  = frequencies[j]*two32/Fs;
             // fm synth 
             if (fm_on) {
@@ -367,13 +372,96 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
             tft_setCursor(0,90);
             tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
             sprintf(buffer, "%d", button_input);
-            //sprintf(buffer, "%d %d %d %d %d %d", keypresses[0], keypresses[1], keypresses[2], keypresses[3], keypresses[4], keypresses[5]);
             tft_writeString(buffer);
         }
         counter++;
     }
     PT_END(pt);
 }
+
+static int mod_param = 0;
+
+static int cycle_pressed = 0;  // cycle button pressed 
+static int cycle_state = 0;
+
+static PT_THREAD (protothread_cycle_button(struct pt *pt))
+{
+	PT_BEGIN(pt);
+	// push button set up
+    EnablePullUpB(BIT_13);
+	mPORTBSetPinsDigitalIn(BIT_13); 
+    
+	char buffer[60];
+	while (1) {	
+		PT_YIELD_TIME_msec(30);
+		cycle_pressed = mPORTBReadBits(BIT_13);
+        
+        tft_setCursor(1,220);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        sprintf(buffer, "cycle_pressed: %d", cycle_pressed);
+        tft_writeString(buffer);
+        
+		if (!cycle_state) {
+			if (cycle_pressed) {
+				cycle_state = 1;
+				mod_param++;
+				if (mod_param == 4) {
+					mod_param = 0;
+				}
+			}
+		}
+		else {
+			if (!cycle_pressed) {
+				cycle_state = 0;
+			}
+		}
+	}
+	PT_END(pt);
+}
+
+static int enter_pressed = 0;
+static int enter_state = 0;
+
+#define MOD_FM      0
+#define MOD_FLANGER 1
+#define MOD_ATK     2
+#define MOD_DECAY   3
+
+static PT_THREAD (protothread_enter_button(struct pt *pt))
+{
+	PT_BEGIN(pt);
+    EnablePullUpB(BIT_7);
+	mPORTBReadBits(BIT_7);
+    char buffer[60];
+	while(1) {
+		PT_YIELD_TIME_msec(30);
+		enter_pressed = mPORTBReadBits(BIT_7);
+        tft_setCursor(1,215);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        sprintf(buffer, "enter button: %d", enter_pressed);
+        tft_writeString(buffer);
+		if (!enter_state) {
+			if (enter_pressed) {
+				enter_state = 1;
+				switch (mod_param) {
+					case MOD_FM:
+						break;
+					case MOD_FLANGER:
+						break;
+					case MOD_ATK:
+						break;
+					case MOD_DECAY:
+						break;
+					default:
+                        break;
+						// do something 
+				}
+			}
+		}
+	}
+	PT_END(pt);
+}
+
 
 // UI globals
 static short modified_tempo;
@@ -396,26 +484,29 @@ static PT_THREAD (protothread_ui(struct pt *pt))
 {
     PT_BEGIN(pt);
     char buffer[256];
-    mPORTBSetPinsDigitalIn(BIT_13);  // flanger_on pin
+//    EnablePullUpB(BIT_13);
+//    mPORTBSetPinsDigitalIn(BIT_13);  // flanger_on pin
     mPORTASetPinsDigitalIn(BIT_0);  // analog_noise pin -- need double pull double throw switch
+    EnablePullUpB(BIT_10);
     mPORTBSetPinsDigitalIn(BIT_10);  // fm_synth 
+    //EnablePullUpA(BIT_0);
     mPORTASetPinsDigitalIn(BIT_0);  // sustain
     mPORTASetPinsDigitalIn(BIT_2);  // tone stack on or off
     while(1) {
-        PT_YIELD_TIME_msec(5);
-        flange_pressed = mPORTBReadBits(BIT_13);
-        // flanger button state machine ======================================= 
-        if(!flange_state) {
-            if (flange_pressed) {  
-                flange_state = 1;
-                // toggle flanger_on 
-                if (!flanger_on) flanger_on = 1;
-                else flanger_on = 0;  
-            }
-        }
-        else if (!flange_pressed) {
-                flange_state = 0;
-        }
+        PT_YIELD_TIME_msec(30);
+//        flange_pressed = mPORTBReadBits(BIT_13);
+//        // flanger button state machine ======================================= 
+//        if(!flange_state) {
+//            if (flange_pressed) {  
+//                flange_state = 1;
+//                // toggle flanger_on 
+//                if (!flanger_on) flanger_on = 1;
+//                else flanger_on = 0;  
+//            }
+//        }
+//        else if (!flange_pressed) {
+//                flange_state = 0;
+//        }
         
         analog_noise_on = mPORTAReadBits(BIT_0);
         
@@ -467,17 +558,17 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
     while(1) {
         // print every 500 ms to prevent synthesis failure
         PT_YIELD_TIME_msec(500);
+        tft_fillRoundRect(0, 40, 450, 200, 1, ILI9340_BLACK);
         // flanger print ==================================================
-        tft_fillRoundRect(0, 40, 450, 180, 1, ILI9340_BLACK);
-        tft_setCursor(1,40);
-        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        if (flanger_on){
-            sprintf(buffer, "Flanger: on");
-        }
-        else {
-            sprintf(buffer, "Flanger: off");
-        }
-        tft_writeString(buffer);
+//        tft_setCursor(1,40);
+//        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//        if (flanger_on){
+//            sprintf(buffer, "Flanger: on");
+//        }
+//        else {
+//            sprintf(buffer, "Flanger: off");
+//        }
+//        tft_writeString(buffer);
 
         // repeat mode print ==================================================
         //tft_fillRoundRect(0, 60, 400, 60, 1, ILI9340_BLACK);
@@ -539,6 +630,42 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         if (stack_on) sprintf(buffer, "Tone Stack: on %d", stack_on);
         else sprintf(buffer, "Tone Stack: off");
         tft_writeString(buffer);
+        
+        // mod_param print ====================================================
+        switch (mod_param) {
+            case MOD_FM:
+                tft_setCursor(1,200);
+                tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+                sprintf(buffer, "mod_param: %d", mod_param);
+                tft_writeString(buffer);
+                break;
+            case MOD_FLANGER:
+                tft_setCursor(1,200);
+                tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+                sprintf(buffer, "mod_param: %d", mod_param);
+                tft_writeString(buffer);
+                break;
+            case MOD_ATK:
+                tft_setCursor(1,200);
+                tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+                sprintf(buffer, "mod_param: %d", mod_param);
+                tft_writeString(buffer);
+                break;
+            case MOD_DECAY:
+                tft_setCursor(1,200);
+                tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+                sprintf(buffer, "mod_param: %d", mod_param);
+                tft_writeString(buffer);
+                break;
+            default:
+                // do something 
+                tft_setCursor(1,200);
+                tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+                sprintf(buffer, "mod_param error");
+                tft_writeString(buffer);
+                break;      
+        }
+     
     }
     PT_END(pt);
 }
@@ -642,6 +769,8 @@ void main(void)
     PT_INIT(&pt_freq_tune);
     PT_INIT(&pt_read_repeat);
     PT_INIT(&pt_repeat_buttons);
+    PT_INIT(&pt_cycle_button);
+    PT_INIT(&pt_enter_button);
     PT_INIT(&pt_ui);
     PT_INIT(&pt_ui_print);
     // scheduling loop 
@@ -655,6 +784,8 @@ void main(void)
         PT_SCHEDULE(protothread_read_inputs(&pt_read_inputs));
         PT_SCHEDULE(protothread_freq_tune(&pt_freq_tune));
         PT_SCHEDULE(protothread_read_repeat(&pt_read_repeat));
+        PT_SCHEDULE(protothread_cycle_button(&pt_cycle_button));
+        PT_SCHEDULE(protothread_enter_button(&pt_enter_button));
         PT_SCHEDULE(protothread_ui(&pt_ui));
         PT_SCHEDULE(protothread_ui_print(&pt_ui_print));
     }    
