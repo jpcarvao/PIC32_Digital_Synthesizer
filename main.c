@@ -286,7 +286,7 @@ static PT_THREAD (protothread_read_button(struct pt *pt))
     start_spi2_critical_section;
     initPE();
     mPortYSetPinsIn(BIT_0 | BIT_1);
-    //mPortYEnablePullUp(BIT_0 | BIT_1);
+    mPortYEnablePullUp(BIT_0 | BIT_1);
     end_spi2_critical_section ;
         
     while (1) {
@@ -299,7 +299,7 @@ static PT_THREAD (protothread_read_button(struct pt *pt))
         for (i=0; i<NUM_KEYS;i++) {
             //ensure that important bit is least significant, then mask to make 
             //sure that entire number is 1 or 0
-            button_pressed[i] = (input>>i) & 1;
+            button_pressed[i] = !((input>>i) & 1);
         }
     }
     PT_END(pt);
@@ -388,13 +388,10 @@ static PT_THREAD (protothread_cycle_button(struct pt *pt))
 {
 	PT_BEGIN(pt);
 	// push button set up
-    EnablePullUpB(BIT_13);
-	mPORTBSetPinsDigitalIn(BIT_13); 
     
 	char buffer[60];
 	while (1) {	
 		PT_YIELD_TIME_msec(30);
-		cycle_pressed = mPORTBReadBits(BIT_13);
         
         tft_setCursor(1,220);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
@@ -430,12 +427,9 @@ static int enter_state = 0;
 static PT_THREAD (protothread_enter_button(struct pt *pt))
 {
 	PT_BEGIN(pt);
-    EnablePullUpB(BIT_7);
-	mPORTBReadBits(BIT_7);
     char buffer[60];
 	while (1) {
 		PT_YIELD_TIME_msec(30);
-		enter_pressed = mPORTBReadBits(BIT_7);
         tft_setCursor(1,215);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         sprintf(buffer, "enter button: %d", enter_pressed);
@@ -488,29 +482,27 @@ static PT_THREAD (protothread_ui(struct pt *pt))
     char buffer[256];
 //    EnablePullUpB(BIT_13);
 //    mPORTBSetPinsDigitalIn(BIT_13);  // flanger_on pin
-    mPORTASetPinsDigitalIn(BIT_0);  // analog_noise pin -- need double pull double throw switch
-    EnablePullUpB(BIT_10);
-    mPORTBSetPinsDigitalIn(BIT_10);  // fm_synth 
-    //EnablePullUpA(BIT_0);
-    //mPORTASetPinsDigitalIn(BIT_0);  // sustain
-    mPORTASetPinsDigitalIn(BIT_2);  // tone stack on or off
+//    mPORTASetPinsDigitalIn(BIT_0);  // analog_noise pin -- need double pull double throw switch
+//    EnablePullUpB(BIT_10);
+//    mPORTBSetPinsDigitalIn(BIT_10);  // fm_synth 
+//    //EnablePullUpA(BIT_0);
+//    //mPORTASetPinsDigitalIn(BIT_0);  // sustain
+//    mPORTASetPinsDigitalIn(BIT_2);  // tone stack on or off
     while (1) {
         PT_YIELD_TIME_msec(30);
-//        flange_pressed = mPORTBReadBits(BIT_13);
-//        // flanger button state machine ======================================= 
-//        if(!flange_state) {
-//            if (flange_pressed) {  
-//                flange_state = 1;
-//                // toggle flanger_on 
-//                if (!flanger_on) flanger_on = 1;
-//                else flanger_on = 0;  
-//            }
-//        }
-//        else if (!flange_pressed) {
-//                flange_state = 0;
-//        }
+        // flanger button state machine ===================================== 
+        if(!flange_state) {
+            if (flange_pressed) {  
+                flange_state = 1;
+                // toggle flanger_on 
+                if (!flanger_on) flanger_on = 1;
+                else flanger_on = 0;  
+            }
+        }
+        else if (!flange_pressed) {
+                flange_state = 0;
+        }
         
-        analog_noise_on = mPORTAReadBits(BIT_0);
         
         // divide by 4 for visibility improvement
         modified_tempo = ReadADC10(0)>>3;
@@ -521,7 +513,6 @@ static PT_THREAD (protothread_ui(struct pt *pt))
         freq_adc = ReadADC10(1);
         
         // FM synth button state machine ======================================
-        fm_pressed = mPORTBReadBits(BIT_10); 
         if(!fm_state) {
             if (fm_pressed) {  
                 fm_state = 1;
@@ -535,7 +526,6 @@ static PT_THREAD (protothread_ui(struct pt *pt))
         }
         
         // sustain button state machine =======================================
-        sus_pressed = mPORTAReadBits(BIT_0);
         if(!sus_state) {
             if (sus_pressed) {  
                 sus_state = 1;
@@ -547,8 +537,6 @@ static PT_THREAD (protothread_ui(struct pt *pt))
         else if (!sus_pressed) {
                 sus_state = 0;
         }
-        // tone stack switch ==================================================
-        stack_on = mPORTAReadBits(BIT_2);
     }
     PT_END(pt);
 }
@@ -560,17 +548,17 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
     while (1) {
         // print every 500 ms to prevent synthesis failure
         PT_YIELD_TIME_msec(500);
-        tft_fillRoundRect(0, 40, 450, 200, 1, ILI9340_BLACK);
+        tft_fillRoundRect(0, 40, 450, 250, 1, ILI9340_BLACK);
         // flanger print ==================================================
-//        tft_setCursor(1,40);
-//        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-//        if (flanger_on){
-//            sprintf(buffer, "Flanger: on");
-//        }
-//        else {
-//            sprintf(buffer, "Flanger: off");
-//        }
-//        tft_writeString(buffer);
+        tft_setCursor(1,40);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        if (flanger_on){
+            sprintf(buffer, "Flanger: on, %d", flange_pressed);
+        }
+        else {
+            sprintf(buffer, "Flanger: off, %d", flange_pressed );
+        }
+        tft_writeString(buffer);
 
         // repeat mode print ==================================================
         //tft_fillRoundRect(0, 60, 400, 60, 1, ILI9340_BLACK);
@@ -589,10 +577,10 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         tft_setCursor(1,75);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         if (analog_noise_on) {
-            sprintf(buffer, "Analog Noise: on");
+            sprintf(buffer, "Analog Noise: on, %d", analog_noise_on);
         }
         else {
-            sprintf(buffer, "Analog Noise: off");
+            sprintf(buffer, "Analog Noise: off, %d", analog_noise_on);
         }
         tft_writeString(buffer);
 
@@ -609,29 +597,24 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         //tft_fillRoundRect(0, 150, 400, 60, 1, ILI9340_BLACK);
         tft_setCursor(1,155);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        sprintf(buffer, "freq_adc (AN5) : %d, %1.3f", freq_adc, ((float)(1.5*(freq_adc-502))/1024.0)+1);
+        sprintf(buffer, "freq_adc (AN5) : %d, %1.3f", freq_adc, 
+                ((float)(1.5*(freq_adc-502))/1024.0)+1);
         tft_writeString(buffer);
         
         // FM synth state display =============================================
         tft_setCursor(1,170);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        if (fm_on) sprintf(buffer, "FM Synth: on");
-        else sprintf(buffer, "FM Synth: off");
+        if (fm_on) sprintf(buffer, "FM Synth: on, %d", fm_pressed);
+        else sprintf(buffer, "FM Synth: off, %d", fm_pressed);
         tft_writeString(buffer);
         
         // Sustain state display ==============================================
         tft_setCursor(1,180);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        if (sustain) sprintf(buffer, "Sustain: on");
-        else sprintf(buffer, "Sustain: off");
+        if (sustain) sprintf(buffer, "Sustain: on, %d", sus_pressed);
+        else sprintf(buffer, "Sustain: off, %d", sus_pressed);
         tft_writeString(buffer);
         
-        // tone stack display =================================================
-        tft_setCursor(1,190);
-        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        if (stack_on) sprintf(buffer, "Tone Stack: on %d", stack_on);
-        else sprintf(buffer, "Tone Stack: off");
-        tft_writeString(buffer);
         
         // mod_param print ====================================================
         switch (mod_param) {
@@ -676,78 +659,174 @@ static PT_THREAD (protothread_read_mux(struct pt *pt ))
 {
     PT_BEGIN(pt);
     char buffer[256];
-    // three mux select bits
-    static int A;
-    static int B;
-    static int C;
     
-    mPORTBSetPinsDigitalOut(BIT_7);  // A
+    static int counter = 0; // print counter
+    
+    // UI Analog Mux Ports ====================================================
+    mPORTBSetPinsDigitalOut(BIT_7);   // A
     mPORTBSetPinsDigitalOut(BIT_10);  // B
     mPORTBSetPinsDigitalOut(BIT_13);  // C
     
     EnablePullUpA(BIT_0);
-    mPORTASetPinsDigitalIn(BIT_0); // read mux    
+    mPORTASetPinsDigitalIn(BIT_0); // read mux   
     
     while (1) {
-        
-        tft_fillRoundRect(0, 40, 450, 200, 1, ILI9340_BLACK);
-
-        // flanger toggle =====================================================
+        // flanger Toggle =====================================================
         //ABC = 000;
         mPORTBClearBits(BIT_7 | BIT_10 | BIT_13);
-        //yield necessary otherwise you use the select mask from the previous iteration
+        //yield necessary otherwise you use the select mask from select signal
         PT_YIELD_TIME_msec(5);
         flange_pressed = mPORTAReadBits(BIT_0);
-        if(!flange_state) {
-        if (flange_pressed) {  
-                flange_state = 1;
-                // toggle flanger_on 
-                if (!flanger_on) flanger_on = 1;
-                else flanger_on = 0;  
-            }
-        }
-        else if (!flange_pressed) {
-                flange_state = 0;
-        }
-        
-        tft_setCursor(1,40);
-        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        if (flanger_on){
-            sprintf(buffer, "Flanger: on, %d", flange_pressed);
-        }
-        else {
-            sprintf(buffer, "Flanger: off, %d", flange_pressed);
-        }
-        tft_writeString(buffer);
-
-        
-//         FM Synth Toggle ====================================================
+        // FM Synth Toggle ====================================================
         // ABC = 100
         mPORTBClearBits(BIT_10 | BIT_13);
         mPORTBSetBits(BIT_7);
         PT_YIELD_TIME_msec(5);
-        fm_pressed = mPORTAReadBits(BIT_0); 
-        if(!fm_state) {
-            if (fm_pressed) {  
-                fm_state = 1;
-                // toggle flanger_on 
-                if (!fm_on) fm_on = 1;
-                else fm_on = 0;  
-            }
-        }
-        else if (!fm_pressed) {
-                fm_state = 0;
-        }
-        // FM synth state display =============================================
-        tft_setCursor(1,170);
-        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        fm_pressed = mPORTAReadBits(BIT_0);
+        // Sustain Toggle =====================================================
+        // ABC = 010
+        mPORTBClearBits(BIT_7 | BIT_13);
+        mPORTBSetBits(BIT_10);
+        PT_YIELD_TIME_msec(5);
+        sus_pressed = mPORTAReadBits(BIT_0);
+        // Tone Stack Switch ==================================================
+        // ABC = 110
+        mPORTBClearBits(BIT_13);
+        mPORTBSetBits(BIT_7 | BIT_10);
+        PT_YIELD_TIME_msec(5);
+        analog_noise_on = mPORTAReadBits(BIT_0); 
+        // Cycle Button =======================================================
+        // ABC = 001 
+        mPORTBClearBits(BIT_7 | BIT_10);
+        mPORTBSetBits(BIT_13);
+        PT_YIELD_TIME_msec(5);
+		cycle_pressed = mPORTAReadBits(BIT_0);
+        // Enter Button =======================================================
+        // ABC = 101
+        mPORTBClearBits(BIT_10);
+        mPORTBSetBits(BIT_7 | BIT_13);
+        PT_YIELD_TIME_msec(5);
+		enter_pressed = mPORTAReadBits(BIT_0);
 
-        if (fm_on) sprintf(buffer, "FM Synth: on, %d", fm_pressed);
-        else sprintf(buffer, "FM Synth: off, %d", fm_pressed);
-        tft_writeString(buffer);
+        // Interpret values ===================================================
+        
+        // Flanger ============================================================
+//        if(!flange_state) {
+//        if (flange_pressed) {  
+//                flange_state = 1;
+//                // toggle flanger_on 
+//                if (!flanger_on) flanger_on = 1;
+//                else flanger_on = 0;  
+//            }
+//        }
+//        else if (!flange_pressed) {
+//                flange_state = 0;
+//        }
+//
+//		// FM Synth Toggle ====================================================
+//        if(!fm_state) {
+//            if (fm_pressed) {  
+//                fm_state = 1;
+//                // toggle flanger_on 
+//                if (!fm_on) fm_on = 1;
+//                else fm_on = 0;  
+//            }
+//        }
+//        else if (!fm_pressed) {
+//                fm_state = 0;
+//        }
+//
+//        // sustain display ==================================================== 
+//        if(!sus_state) {
+//            if (sus_pressed) {  
+//                sus_state = 1;
+//                // toggle flanger_on 
+//                if (!sustain) sustain = 1;
+//                else sustain = 0;  
+//            }
+//        }
+//        else if (!sus_pressed) {
+//                sus_state = 0;
+//        }
+
+        // Prints =============================================================
+//        if (counter%50) {
+//            // Clear Screen 
+//            tft_fillRoundRect(0, 40, 450, 200, 1, ILI9340_BLACK);
+//            // Flanger Print ==================================================
+//            tft_setCursor(1,40);
+//            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//            if (flanger_on){
+//                sprintf(buffer, "Flanger: on, %d", flange_pressed);
+//            }
+//            else {
+//                sprintf(buffer, "Flanger: off, %d", flange_pressed);
+//            }
+//            tft_writeString(buffer);
+//
+//            // FM Synth State Display =========================================
+//            tft_setCursor(1,170);
+//            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//
+//            if (fm_on) sprintf(buffer, "FM Synth: on, %d", fm_pressed);
+//            else sprintf(buffer, "FM Synth: off, %d", fm_pressed);
+//            tft_writeString(buffer);
+//            
+//            // Sustain Display ================================================
+//            tft_setCursor(1,180);
+//            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//            if (sustain) sprintf(buffer, "Sustain: on, %d", sus_pressed);
+//            else sprintf(buffer, "Sustain: off, %d", sus_pressed);
+//            tft_writeString(buffer);
+//            
+//            // display tone stack stuff =======================================
+//            tft_setCursor(1,190);
+//            tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//            if (stack_on) sprintf(buffer, "Tone Stack: on %d", analog_noise_on);
+//            else sprintf(buffer, "Tone Stack: off");
+//            tft_writeString(buffer);
+//            
+//            // mod_param print ====================================================
+//            switch (mod_param) {
+//                case MOD_FM:
+//                    tft_setCursor(1,200);
+//                    tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//                    sprintf(buffer, "Modify FM Synthesis");
+//                    tft_writeString(buffer);
+//                    break;
+//                case MOD_FLANGER:
+//                    tft_setCursor(1,200);
+//                    tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//                    sprintf(buffer, "Modify Flanger");
+//                    tft_writeString(buffer);
+//                    break;
+//                case MOD_ATK:
+//                    tft_setCursor(1,200);
+//                    tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//                    sprintf(buffer, "Modify Attack Time");
+//                    tft_writeString(buffer);
+//                    break;
+//                case MOD_DECAY:
+//                    tft_setCursor(1,200);
+//                    tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//                    sprintf(buffer, "Modify Decay Time: %d");
+//                    tft_writeString(buffer);
+//                    break;
+//                default:
+//                    // do something 
+//                    tft_setCursor(1,200);
+//                    tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//                    sprintf(buffer, "mod_param error");
+//                    tft_writeString(buffer);
+//                    break;      
+//            }
+//        }
+        counter++;
     }
     PT_END(pt);
 }
+
+/* Configures Analog-to-Digital Converter */
 void adc_config(void)
 {
     CloseADC10(); // ensure the ADC is off before setting the configuration
@@ -772,20 +851,21 @@ void adc_config(void)
     EnableADC10(); // Enable the ADC
 }
 
-
+/* Configures peripherals, timing, interrups, and schedules+cofigures threads*/
 void main(void)
 {
+    // Timing and ISR =========================================================
     // Set up timer2 on,  interrupts, internal clock, prescalar 1, toggle rate
     // 400 is 100 ksamples/sec at 30 MHz clock
     // 200 is 200 ksamples/sec
     // increased to 572 from 200 because was leading to incorrect sine freq
     //changing from 143
-    #define ISR_PERIOD 
+    //#define ISR_PERIOD 
     OpenTimer2(T2_ON | T2_SOURCE_INT | T2_PS_1_4, 508);   
     ConfigIntTimer2(T2_INT_ON | T2_INT_PRIOR_2);
     mT2ClearIntFlag(); 
     
-    /// SPI setup ////////////////////////////////
+    // SPI + DAC setup ========================================================
     // SCK2 is pin 26 
     // SDO2 is in PPS output group 2, could be connected to RB5 which is pin 14
     PPSOutput(2, RPB5, SDO2);
@@ -804,17 +884,15 @@ void main(void)
     SpiChnOpen(spiChn, SPI_OPEN_ON | SPI_OPEN_MODE16 | SPI_OPEN_MSTEN | 
             SPI_OPEN_CKE_REV , spiClkDiv);
    
-  
     ANSELA = 0; ANSELB = 0; CM1CON = 0; CM2CON = 0;
     
-    // === config threads ==========
-    // turns OFF UART support and debugger pin
+    // config threads =========================================================
     PT_setup();
 
-    // === setup system wide interrupts  ========
+    // setup system wide interrupts  ==========================================
     INTEnableSystemMultiVectoredInt();
     
-    
+    // TFT ====================================================================
     // init the display
     tft_init_hw();
     tft_begin();
@@ -825,23 +903,26 @@ void main(void)
     // build the sine lookup table
     // scaled to produce values between 0 and 4096
     
-   int i;
-   for (i = 0; i < SINE_TABLE_SIZE; i++){
-         sin_table[i] =  float2fix16(2047*sin((float)i*6.283/(float)SINE_TABLE_SIZE));
+    // Sine Tables ============================================================
+    int i;
+    for (i = 0; i < SINE_TABLE_SIZE; i++){
+        sin_table[i] =  
+                float2fix16(2047*sin((float)i*6.283/(float)SINE_TABLE_SIZE));
     }
    
-   int j;
-   for (j=0; j<KEYPRESS_SIZE; j++) {
+    int j;
+    for (j=0; j<KEYPRESS_SIZE; j++) {
        keypresses[j] = 0;
        keypress_ID[j] = 0;
-   }
+    }
    
-   int k;
-   for (k=0; k<MAX_FLANGER_SIZE; k++) {
-       flange_buffer[k] = 0;
-   }
+    int k;
+    for (k=0; k<MAX_FLANGER_SIZE; k++) {
+        flange_buffer[k] = 0;
+    }
     
-    // PT INIT
+    
+    // PT INIT ================================================================
     PT_INIT(&pt_read_button);
     PT_INIT(&pt_read_inputs);
     PT_INIT(&pt_freq_tune);
@@ -864,10 +945,10 @@ void main(void)
         PT_SCHEDULE(protothread_read_inputs(&pt_read_inputs));
         PT_SCHEDULE(protothread_freq_tune(&pt_freq_tune));
         PT_SCHEDULE(protothread_read_repeat(&pt_read_repeat));
-        //PT_SCHEDULE(protothread_cycle_button(&pt_cycle_button));
-        //PT_SCHEDULE(protothread_enter_button(&pt_enter_button));
+        PT_SCHEDULE(protothread_cycle_button(&pt_cycle_button));
+        PT_SCHEDULE(protothread_enter_button(&pt_enter_button));
         PT_SCHEDULE(protothread_read_mux(&pt_read_mux));
-        //PT_SCHEDULE(protothread_ui(&pt_ui));
-        //PT_SCHEDULE(protothread_ui_print(&pt_ui_print));
+        PT_SCHEDULE(protothread_ui(&pt_ui));
+        PT_SCHEDULE(protothread_ui_print(&pt_ui_print));
     }    
 }  // main
