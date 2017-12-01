@@ -12,7 +12,7 @@
 #define Fs 20000.0  // 70kHz
 #define two32 4294967296.0 // 2^32 
 #define frequency 440 
-#define NUM_KEYS 2
+#define NUM_KEYS 13
 
 volatile SpiChannel spiChn = SPI_CHANNEL2 ;	// the SPI channel to use
 // for 60 MHz PB clock use divide-by-3
@@ -32,9 +32,9 @@ volatile fix16 sin_table[SINE_TABLE_SIZE];
 volatile short DAC_data;
 
 // A4, C#4, and F#4 
-volatile int frequencies[NUM_KEYS] = { 440, 554 };  // actual frequencies 
-volatile int frequencies_set[NUM_KEYS] = { 440, 554 };  // for freq modulation
-volatile int frequencies_FM[NUM_KEYS] = {440*4,554*4};
+volatile int frequencies[NUM_KEYS] = {523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988, 1047};  // actual frequencies 
+volatile int frequencies_set[NUM_KEYS] = {523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988, 1047};  // for freq modulation
+volatile int frequencies_FM[NUM_KEYS];
 // the DDS units:
 //volatile unsigned int phase_accum_main = 0, phase_incr_main = frequency*two32/Fs;
 // for sine table
@@ -282,18 +282,26 @@ static PT_THREAD (protothread_read_button(struct pt *pt))
 {
     PT_BEGIN(pt);
     static int pressed[NUM_KEYS];
+    static int inputY;
+    static int inputZ;
     static int input;
     start_spi2_critical_section;
     initPE();
-    mPortYSetPinsIn(BIT_0 | BIT_1);
-    mPortYEnablePullUp(BIT_0 | BIT_1);
+    mPortYSetPinsIn(BIT_0 | BIT_1 | BIT_2 | BIT_3 | BIT_4 | BIT_5 | BIT_6);
+    mPortYEnablePullUp(BIT_0 | BIT_1 | BIT_2 | BIT_3 | BIT_4 | BIT_5 | BIT_6);
+    
+    mPortZSetPinsIn(BIT_0 | BIT_1 | BIT_2 | BIT_3 | BIT_4 | BIT_5);
+    mPortZEnablePullUp(BIT_0 | BIT_1 | BIT_2 | BIT_3 | BIT_4 | BIT_5);
     end_spi2_critical_section ;
         
     while (1) {
         PT_YIELD_TIME_msec(30);
         start_spi2_critical_section;
-        input = readPE(GPIOY);
+        inputY = readPE(GPIOY);
+        inputZ = readPE(GPIOZ);
         end_spi2_critical_section;
+        input = inputY<<7;
+        input = input | inputZ;
         button_input = input;
         int i;
         for (i=0; i<NUM_KEYS;i++) {
