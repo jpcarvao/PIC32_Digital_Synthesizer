@@ -21,7 +21,7 @@ volatile int spiClkDiv = 2 ; // 20 MHz DAC clock
 // === thread structures ============================================
 static struct pt pt_read_button, pt_read_inputs, pt_read_repeat, pt_freq_tune, 
         pt_repeat_buttons, pt_cycle_button, pt_enter_button, pt_ui, 
-        pt_ui_print;  
+        pt_ui_print, pt_read_mux;  
 
 // DDS sine table
 #define SINE_TABLE_SIZE 256
@@ -113,16 +113,16 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     static int delay_index;
     static int dk_flag;
     
-    dk_flag=0;
+    dk_flag = 0;
     
     
     dk_interval++;
-    if (dk_interval==255) {
-        dk_flag=1;
-        dk_interval=0;
+    if (dk_interval == 255) {
+        dk_flag = 1;
+        dk_interval = 0;
     }
     // FM synthesis
-    for (i=0;i<NUM_KEYS;i++) {
+    for (i = 0; i < NUM_KEYS; i++) {
         if (ramp_flag[i])
         {
             dk_state_fm[i] = fm_depth; 
@@ -143,8 +143,8 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
             env_fm[i] = multfix16(fm_depth-attack_state_fm_temp, dk_state_fm_temp) ;
             
             if (sustain && button_pressed_in[i]) {
-                dk_state_main[i]=onefix16;
-                dk_state_fm[i]=fm_depth;
+                dk_state_main[i] = onefix16;
+                dk_state_fm[i] = fm_depth;
             }
             else {
                 dk_state_main[i] = dk_state_main_temp;
@@ -220,18 +220,18 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 	while (1) {
 		PT_YIELD_TIME_msec(5);
         int i;
-		for (i=0; i<NUM_KEYS; i++) {
+		for (i=0; i < NUM_KEYS; i++) {
             pressed_old[i] = button_pressed_in[i];
             button_pressed_in[i] = button_pressed[i];
-            ramp_flag[i]=0;
+            ramp_flag[i] = 0;
 			if (button_pressed_in[i]) {
 				//ramp up if nothing was pressed before and now something is pressed, indicating a new sound
                 if (!pressed_old[i]) {
                     ramp_flag[i] = 1;
                     //record time of press/release and which key was pressed/released
                     if (!repeat_mode_on) {
-                        keypresses[keypress_count]=PT_GET_TIME();
-                        keypress_ID[keypress_count]=i;
+                        keypresses[keypress_count] = PT_GET_TIME();
+                        keypress_ID[keypress_count] = i;
                         keypress_count++;
                     }
                 }
@@ -241,8 +241,8 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
                 if (pressed_old[i]) {
                     //record time of press/release and which key was pressed/released
                     if (!repeat_mode_on) {
-                        keypresses[keypress_count]=PT_GET_TIME();
-                        keypress_ID[keypress_count]=i;
+                        keypresses[keypress_count] = PT_GET_TIME();
+                        keypress_ID[keypress_count] = i;
                         keypress_count++;
                     }
                 }
@@ -257,17 +257,17 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 static PT_THREAD(protothread_read_repeat(struct pt *pt))
 {
     PT_BEGIN(pt);
-    static int state=0;
+    static int state = 0;
     while (1) {
         PT_YIELD_TIME_msec(30);
         if (mPORTBReadBits(BIT_8)) {
-            repeat_mode_on=1;
+            repeat_mode_on = 1;
             if (!state) {
                 keypresses[keypress_count] = PT_GET_TIME();
                 keypress_ID[keypress_count] = -1; 
                 valid_size = keypress_count;
             }
-            state=1;
+            state = 1;
         }
         else {
             repeat_mode_on = 0;
@@ -289,7 +289,7 @@ static PT_THREAD (protothread_read_button(struct pt *pt))
     //mPortYEnablePullUp(BIT_0 | BIT_1);
     end_spi2_critical_section ;
         
-    while(1) {
+    while (1) {
         PT_YIELD_TIME_msec(30);
         start_spi2_critical_section;
         input = readPE(GPIOY);
@@ -343,7 +343,7 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
     static int adc_freq;
     static float scale2;
     static int counter = 0;  // used to decrease rate of printing
-    while(1) {
+    while (1) {
         PT_YIELD_TIME_msec(5); 
         // adc_val of 502 is 0 for freq modulation
         static int j;
@@ -433,7 +433,7 @@ static PT_THREAD (protothread_enter_button(struct pt *pt))
     EnablePullUpB(BIT_7);
 	mPORTBReadBits(BIT_7);
     char buffer[60];
-	while(1) {
+	while (1) {
 		PT_YIELD_TIME_msec(30);
 		enter_pressed = mPORTBReadBits(BIT_7);
         tft_setCursor(1,215);
@@ -445,8 +445,10 @@ static PT_THREAD (protothread_enter_button(struct pt *pt))
 				enter_state = 1;
 				switch (mod_param) {
 					case MOD_FM:
+                        // fm/actual
 						break;
 					case MOD_FLANGER:
+                        // 
 						break;
 					case MOD_ATK:
 						break;
@@ -490,9 +492,9 @@ static PT_THREAD (protothread_ui(struct pt *pt))
     EnablePullUpB(BIT_10);
     mPORTBSetPinsDigitalIn(BIT_10);  // fm_synth 
     //EnablePullUpA(BIT_0);
-    mPORTASetPinsDigitalIn(BIT_0);  // sustain
+    //mPORTASetPinsDigitalIn(BIT_0);  // sustain
     mPORTASetPinsDigitalIn(BIT_2);  // tone stack on or off
-    while(1) {
+    while (1) {
         PT_YIELD_TIME_msec(30);
 //        flange_pressed = mPORTBReadBits(BIT_13);
 //        // flanger button state machine ======================================= 
@@ -555,7 +557,7 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
 {
     PT_BEGIN(pt);
     char buffer[256];
-    while(1) {
+    while (1) {
         // print every 500 ms to prevent synthesis failure
         PT_YIELD_TIME_msec(500);
         tft_fillRoundRect(0, 40, 450, 200, 1, ILI9340_BLACK);
@@ -607,7 +609,7 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         //tft_fillRoundRect(0, 150, 400, 60, 1, ILI9340_BLACK);
         tft_setCursor(1,155);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        sprintf(buffer, "freq_adc (AN5) : %d", freq_adc);
+        sprintf(buffer, "freq_adc (AN5) : %d, %1.3f", freq_adc, ((float)(1.5*(freq_adc-502))/1024.0)+1);
         tft_writeString(buffer);
         
         // FM synth state display =============================================
@@ -636,25 +638,25 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
             case MOD_FM:
                 tft_setCursor(1,200);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-                sprintf(buffer, "mod_param: %d", mod_param);
+                sprintf(buffer, "Modify FM Synthesis");
                 tft_writeString(buffer);
                 break;
             case MOD_FLANGER:
                 tft_setCursor(1,200);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-                sprintf(buffer, "mod_param: %d", mod_param);
+                sprintf(buffer, "Modify Flanger");
                 tft_writeString(buffer);
                 break;
             case MOD_ATK:
                 tft_setCursor(1,200);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-                sprintf(buffer, "mod_param: %d", mod_param);
+                sprintf(buffer, "Modify Attack Time");
                 tft_writeString(buffer);
                 break;
             case MOD_DECAY:
                 tft_setCursor(1,200);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-                sprintf(buffer, "mod_param: %d", mod_param);
+                sprintf(buffer, "Modify Decay Time: %d");
                 tft_writeString(buffer);
                 break;
             default:
@@ -670,6 +672,82 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
     PT_END(pt);
 }
 
+static PT_THREAD (protothread_read_mux(struct pt *pt ))
+{
+    PT_BEGIN(pt);
+    char buffer[256];
+    // three mux select bits
+    static int A;
+    static int B;
+    static int C;
+    
+    mPORTBSetPinsDigitalOut(BIT_7);  // A
+    mPORTBSetPinsDigitalOut(BIT_10);  // B
+    mPORTBSetPinsDigitalOut(BIT_13);  // C
+    
+    EnablePullUpA(BIT_0);
+    mPORTASetPinsDigitalIn(BIT_0); // read mux    
+    
+    while (1) {
+        
+        tft_fillRoundRect(0, 40, 450, 200, 1, ILI9340_BLACK);
+
+        // flanger toggle =====================================================
+        //ABC = 000;
+        mPORTBClearBits(BIT_7 | BIT_10 | BIT_13);
+        //yield necessary otherwise you use the select mask from the previous iteration
+        PT_YIELD_TIME_msec(5);
+        flange_pressed = mPORTAReadBits(BIT_0);
+        if(!flange_state) {
+        if (flange_pressed) {  
+                flange_state = 1;
+                // toggle flanger_on 
+                if (!flanger_on) flanger_on = 1;
+                else flanger_on = 0;  
+            }
+        }
+        else if (!flange_pressed) {
+                flange_state = 0;
+        }
+        
+        tft_setCursor(1,40);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        if (flanger_on){
+            sprintf(buffer, "Flanger: on, %d", flange_pressed);
+        }
+        else {
+            sprintf(buffer, "Flanger: off, %d", flange_pressed);
+        }
+        tft_writeString(buffer);
+
+        
+//         FM Synth Toggle ====================================================
+        // ABC = 100
+        mPORTBClearBits(BIT_10 | BIT_13);
+        mPORTBSetBits(BIT_7);
+        PT_YIELD_TIME_msec(5);
+        fm_pressed = mPORTAReadBits(BIT_0); 
+        if(!fm_state) {
+            if (fm_pressed) {  
+                fm_state = 1;
+                // toggle flanger_on 
+                if (!fm_on) fm_on = 1;
+                else fm_on = 0;  
+            }
+        }
+        else if (!fm_pressed) {
+                fm_state = 0;
+        }
+        // FM synth state display =============================================
+        tft_setCursor(1,170);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+
+        if (fm_on) sprintf(buffer, "FM Synth: on, %d", fm_pressed);
+        else sprintf(buffer, "FM Synth: off, %d", fm_pressed);
+        tft_writeString(buffer);
+    }
+    PT_END(pt);
+}
 void adc_config(void)
 {
     CloseADC10(); // ensure the ADC is off before setting the configuration
@@ -773,6 +851,8 @@ void main(void)
     PT_INIT(&pt_enter_button);
     PT_INIT(&pt_ui);
     PT_INIT(&pt_ui_print);
+    
+    PT_INIT(&pt_read_mux);
     // scheduling loop 
     while(1) {
         if (!repeat_mode_on){
@@ -784,9 +864,10 @@ void main(void)
         PT_SCHEDULE(protothread_read_inputs(&pt_read_inputs));
         PT_SCHEDULE(protothread_freq_tune(&pt_freq_tune));
         PT_SCHEDULE(protothread_read_repeat(&pt_read_repeat));
-        PT_SCHEDULE(protothread_cycle_button(&pt_cycle_button));
-        PT_SCHEDULE(protothread_enter_button(&pt_enter_button));
-        PT_SCHEDULE(protothread_ui(&pt_ui));
-        PT_SCHEDULE(protothread_ui_print(&pt_ui_print));
+        //PT_SCHEDULE(protothread_cycle_button(&pt_cycle_button));
+        //PT_SCHEDULE(protothread_enter_button(&pt_enter_button));
+        PT_SCHEDULE(protothread_read_mux(&pt_read_mux));
+        //PT_SCHEDULE(protothread_ui(&pt_ui));
+        //PT_SCHEDULE(protothread_ui_print(&pt_ui_print));
     }    
 }  // main
