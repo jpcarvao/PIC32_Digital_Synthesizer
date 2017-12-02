@@ -11,8 +11,8 @@
 
 #define Fs 20000.0  // 70kHz
 #define two32 4294967296.0 // 2^32 
-#define frequency 440 
-#define NUM_KEYS 13
+//#define NUM_KEYS 13
+#define NUM_KEYS 2
 
 volatile SpiChannel spiChn = SPI_CHANNEL2 ;	// the SPI channel to use
 // for 60 MHz PB clock use divide-by-3
@@ -32,8 +32,10 @@ volatile fix16 sin_table[SINE_TABLE_SIZE];
 volatile short DAC_data;
 
 // A4, C#4, and F#4 
-volatile int frequencies[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // actual frequencies 
-volatile int frequencies_set[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // for freq modulation
+//volatile int frequencies[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // actual frequencies 
+//volatile int frequencies_set[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // for freq modulation
+volatile int frequencies[NUM_KEYS] = {262, 277};
+volatile int frequencies_set[NUM_KEYS] = {262, 277};
 volatile int frequencies_FM[NUM_KEYS];
 // the DDS units:
 //volatile unsigned int phase_accum_main = 0, phase_incr_main = frequency*two32/Fs;
@@ -493,6 +495,8 @@ static int sus_state = 1; // sustain on at start up
 static int sus_pressed;   // reads input for sustain
 // tone stack stuff
 static int stack_on;
+// repeat button
+static int repeat_pressed;
 
 /* Thread that Controls the User Interface */
 static PT_THREAD (protothread_ui(struct pt *pt))
@@ -575,12 +579,13 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         //tft_fillRoundRect(0, 60, 400, 60, 1, ILI9340_BLACK);
         tft_setCursor(1,60);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        if (repeat_mode_on) {
-            sprintf(buffer, "Repeat Mode: on");
-        }
-        else {
-            sprintf(buffer, "Repeat Mode: off");
-        }
+//        if (repeat_mode_on) {
+//            sprintf(buffer, "Repeat Mode: on");
+//        }
+//        else {
+//            sprintf(buffer, "Repeat Mode: off");
+//        }
+        sprintf(buffer, "Repeat Mode: %d", repeat_pressed);
         tft_writeString(buffer);
 
         // analog noise print =================================================
@@ -715,6 +720,12 @@ static PT_THREAD (protothread_read_mux(struct pt *pt ))
         mPORTBSetBits(BIT_7 | BIT_13);
         PT_YIELD_TIME_msec(5);
 		enter_pressed = mPORTBReadBits(BIT_8);
+        // Repeat Button ======================================================
+        // ABC = 011
+        mPORTBClearBits(BIT_7);
+        mPORTBSetBits(BIT_10 | BIT_13);
+        PT_YIELD_TIME_msec(5);
+		repeat_pressed = mPORTBReadBits(BIT_8);
     }
     PT_END(pt);
 }
