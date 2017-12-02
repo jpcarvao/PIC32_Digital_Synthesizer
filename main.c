@@ -32,8 +32,8 @@ volatile fix16 sin_table[SINE_TABLE_SIZE];
 volatile short DAC_data;
 
 // A4, C#4, and F#4 
-volatile int frequencies[NUM_KEYS] = {523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988, 1047};  // actual frequencies 
-volatile int frequencies_set[NUM_KEYS] = {523, 554, 587, 622, 659, 698, 740, 784, 831, 880, 932, 988, 1047};  // for freq modulation
+volatile int frequencies[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // actual frequencies 
+volatile int frequencies_set[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // for freq modulation
 volatile int frequencies_FM[NUM_KEYS];
 // the DDS units:
 //volatile unsigned int phase_accum_main = 0, phase_incr_main = frequency*two32/Fs;
@@ -218,7 +218,7 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 	PT_BEGIN(pt);
     static int pressed_old[NUM_KEYS];
 	while (1) {
-		PT_YIELD_TIME_msec(5);
+		PT_YIELD_TIME_msec(1);
         int i;
 		for (i=0; i < NUM_KEYS; i++) {
             pressed_old[i] = button_pressed_in[i];
@@ -295,12 +295,12 @@ static PT_THREAD (protothread_read_button(struct pt *pt))
     end_spi2_critical_section ;
         
     while (1) {
-        PT_YIELD_TIME_msec(30);
+        PT_YIELD_TIME_msec(1);
         start_spi2_critical_section;
         inputY = readPE(GPIOY);
         inputZ = readPE(GPIOZ);
         end_spi2_critical_section;
-        input = inputY<<7;
+        input = inputY<<6;
         input = input | inputZ;
         button_input = input;
         int i;
