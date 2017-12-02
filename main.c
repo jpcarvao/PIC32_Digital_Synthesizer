@@ -59,12 +59,18 @@ volatile int keypress_count = 0;
 
 volatile int repeat_mode_on = 0;
 volatile int valid_size;
-volatile float tempo;
+volatile float tempo = 1;
+
+//FX stuff
+volatile float fx;
+volatile float fm_ratio = 3;
+volatile int DELAY_RAMP_PERIOD = 200;
+volatile fix16 attack_main = float2fix16(0.05);
+volatile fix16 dk_main = float2fix16(0.97);
 
 // Flanging Stuff (Phase Shifting)
 #define MAX_FLANGER_SIZE 2048
 volatile short flange_buffer[MAX_FLANGER_SIZE];
-#define DELAY_RAMP_PERIOD 200
 volatile unsigned int current_flanger_delay = 0;
 volatile int flange_counter = 0;
 volatile int delay_counter = 0;
@@ -75,7 +81,6 @@ volatile int delay_on=0;
 
 // FM Synthesis Stuff
 volatile fix16 dk_fm=float2fix16(0.99), attack_fm=float2fix16(0.02);
-volatile fix16 dk_main=float2fix16(0.97), attack_main=float2fix16(0.05);
 volatile fix16 dk_state_fm[NUM_KEYS], attack_state_fm[NUM_KEYS];
 volatile fix16 dk_state_main[NUM_KEYS], attack_state_main[NUM_KEYS];
 volatile fix16 fm_depth=float2fix16(2);
@@ -96,7 +101,7 @@ volatile int button_input=0;
 // UI STUFF
 volatile int flanger_on;
 volatile int analog_noise_on;
-static int fm_on = 1;     // donates if fm synth is on (on at startup)
+volatile int fm_on = 1;     // donates if fm synth is on (on at startup)
 
 /* Auxiliary Function definitions */
 void adc_config(void);
@@ -157,8 +162,12 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
         
    		if (button_pressed_in[i] || ramp_flag[i]==0) {
             phase_accum_FM[i] += phase_incr_FM[i];
-       	    //phase_accum_main[i] += phase_incr_main[i] + ((unsigned int)sin_table[phase_accum_FM[i]>>24]);
-            phase_accum_main[i] += phase_incr_main[i] + multfix16(env_fm[i],sin_table[phase_accum_FM[i]>>24]);
+            if (fm_on) {//toggled by button in pt ui
+                phase_accum_main[i] += phase_incr_main[i] + multfix16(env_fm[i],sin_table[phase_accum_FM[i]>>24]);
+            }
+            else {
+                phase_accum_main[i] += phase_incr_main[i];
+            }
 		    DAC_data += ((fix2int16(env_main[i]<<9))*fix2int16(sin_table[phase_accum_main[i]>>24]))>>9;
             //DAC_data += fix2int16(sin_table[phase_accum_main[i]>>24]);
 		    num_keys_pressed++;
@@ -257,10 +266,11 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 static PT_THREAD(protothread_read_repeat(struct pt *pt))
 {
     PT_BEGIN(pt);
+    mPORTASetPinsDigitalIn(BIT_0);
     static int state = 0;
     while (1) {
         PT_YIELD_TIME_msec(30);
-        if (mPORTBReadBits(BIT_8)) {
+        if (mPORTAReadBits(BIT_0)) {
             repeat_mode_on = 1;
             if (!state) {
                 keypresses[keypress_count] = PT_GET_TIME();
@@ -359,20 +369,14 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
         adc_freq = ReadADC10(1);
         scale = ((float)(1.5*(adc_freq-502))/1024.0)+1;
         scale2 = ((float)adc_val/1024.0);
-        tempo = scale2*2;
+        fx = scale2;
         for (j = 0; j < NUM_KEYS; j++) {
             frequencies[j] = ((int) frequencies_set[j] * scale);
             //frequencies[j] = ((int) frequencies_set[j] * 1);
             phase_incr_main[j]  = frequencies[j]*two32/Fs;
             // fm synth 
-            if (fm_on) {
-                frequencies_FM[j] = 3*frequencies[j];
-                phase_incr_FM[j]  = frequencies_FM[j]*two32/Fs;
-            }
-            else {
-                frequencies_FM[j] = 0;
-                phase_incr_FM[j]  = 0;
-            }
+            frequencies_FM[j] = fm_ratio*frequencies[j];
+            phase_incr_FM[j]  = frequencies_FM[j]*two32/Fs;
         }
         // print every 500 ms -- will be removed later anyway 
         if (counter%50) {  
@@ -447,14 +451,16 @@ static PT_THREAD (protothread_enter_button(struct pt *pt))
 				enter_state = 1;
 				switch (mod_param) {
 					case MOD_FM:
-                        // fm/actual
+                        fm_ratio = fx*3+1;
 						break;
 					case MOD_FLANGER:
-                        // 
+                        DELAY_RAMP_PERIOD = fx*1000 + 100;
 						break;
 					case MOD_ATK:
+                        attack_main = fx*.1 + 0;
 						break;
 					case MOD_DECAY:
+                        dk_main = fx*.1 + .9;
 						break;
 					default:
                         break;
@@ -462,13 +468,18 @@ static PT_THREAD (protothread_enter_button(struct pt *pt))
 				}
 			}
 		}
+        else {
+            if (!enter_pressed) {
+                enter_state=0;
+            }
+        }
 	}
 	PT_END(pt);
 }
 
 
 // UI globals
-static short modified_tempo;
+static short modified_fx;
 static short modified_pitch;
 static int freq_adc = 0;
 // flange stuff
@@ -505,7 +516,7 @@ static PT_THREAD (protothread_ui(struct pt *pt))
         
         
         // divide by 4 for visibility improvement
-        modified_tempo = ReadADC10(0)>>3;
+        modified_fx = ReadADC10(0)>>3;
         
         // pitch display setting
         modified_pitch = frequencies[1]>>3;
@@ -587,7 +598,7 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         // Tempo Display ======================================================
           
         //tft_fillRoundRect(75, 100, 255, 25, 1, ILI9340_BLACK);
-        tft_fillRoundRect(75, 100, modified_tempo, 25, 1, ILI9340_RED );
+        tft_fillRoundRect(75, 100, modified_fx, 25, 1, ILI9340_RED );
 
         // Pitch Display ======================================================
         //tft_fillRoundRect(75, 125, 255, 25, 1, ILI9340_BLACK);
@@ -664,8 +675,8 @@ static PT_THREAD (protothread_read_mux(struct pt *pt ))
     mPORTBSetPinsDigitalOut(BIT_10);  // B
     mPORTBSetPinsDigitalOut(BIT_13);  // C
     
-    EnablePullUpA(BIT_0);
-    mPORTASetPinsDigitalIn(BIT_0); // read mux   
+    EnablePullUpB(BIT_0);
+    mPORTBSetPinsDigitalIn(BIT_8); // read mux   
     
     while (1) {
         // flanger Toggle =====================================================
@@ -673,37 +684,37 @@ static PT_THREAD (protothread_read_mux(struct pt *pt ))
         mPORTBClearBits(BIT_7 | BIT_10 | BIT_13);
         //yield necessary otherwise you use the select mask from select signal
         PT_YIELD_TIME_msec(5);
-        flange_pressed = mPORTAReadBits(BIT_0);
+        flange_pressed = mPORTBReadBits(BIT_8);
         // FM Synth Toggle ====================================================
         // ABC = 100
         mPORTBClearBits(BIT_10 | BIT_13);
         mPORTBSetBits(BIT_7);
         PT_YIELD_TIME_msec(5);
-        fm_pressed = mPORTAReadBits(BIT_0);
+        fm_pressed = mPORTBReadBits(BIT_8);
         // Sustain Toggle =====================================================
         // ABC = 010
         mPORTBClearBits(BIT_7 | BIT_13);
         mPORTBSetBits(BIT_10);
         PT_YIELD_TIME_msec(5);
-        sus_pressed = mPORTAReadBits(BIT_0);
+        sus_pressed = mPORTBReadBits(BIT_8);
         // Tone Stack Switch ==================================================
         // ABC = 110
         mPORTBClearBits(BIT_13);
         mPORTBSetBits(BIT_7 | BIT_10);
         PT_YIELD_TIME_msec(5);
-        analog_noise_on = mPORTAReadBits(BIT_0); 
+        analog_noise_on = mPORTBReadBits(BIT_8); 
         // Cycle Button =======================================================
         // ABC = 001 
         mPORTBClearBits(BIT_7 | BIT_10);
         mPORTBSetBits(BIT_13);
         PT_YIELD_TIME_msec(5);
-		cycle_pressed = mPORTAReadBits(BIT_0);
+		cycle_pressed = mPORTBReadBits(BIT_8);
         // Enter Button =======================================================
         // ABC = 101
         mPORTBClearBits(BIT_10);
         mPORTBSetBits(BIT_7 | BIT_13);
         PT_YIELD_TIME_msec(5);
-		enter_pressed = mPORTAReadBits(BIT_0);
+		enter_pressed = mPORTBReadBits(BIT_8);
     }
     PT_END(pt);
 }
