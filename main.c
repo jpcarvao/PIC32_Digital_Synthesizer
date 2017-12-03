@@ -672,6 +672,14 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         sprintf(buffer, "enter button: %d", enter_pressed);
         tft_writeString(buffer);
+        // Triple ADC TEST:
+        tft_fillRoundRect(0, 220, 200, 10, 1, ILI9340_BLACK);
+        tft_setCursor(1,220);
+        static int adc0, adc1, adc2;
+        adc0 = ReadADC10(0); adc1 = ReadADC10(1); adc2 = ReadADC10(2);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        sprintf(buffer, "ADC0: %d, ADC1: %d, ADC2: %d", adc0, adc1, adc2);
+        tft_writeString(buffer);
         }
     PT_END(pt);
 }
@@ -744,17 +752,19 @@ void adc_config(void)
     #define PARAM1  ADC_FORMAT_INTG16 | ADC_CLK_AUTO | ADC_AUTO_SAMPLING_ON 
     // define setup parameters for OpenADC10
     #define PARAM2  ADC_VREF_AVDD_AVSS | ADC_OFFSET_CAL_DISABLE \
-            | ADC_SCAN_OFF | ADC_SAMPLES_PER_INT_2 | ADC_ALT_BUF_OFF \
-            | ADC_ALT_INPUT_ON
+            | ADC_SCAN_ON | ADC_SAMPLES_PER_INT_3 | ADC_ALT_BUF_OFF \
+            | ADC_ALT_INPUT_OFF
     // Define setup parameters for OpenADC10
     #define PARAM3 ADC_CONV_CLK_PB | ADC_SAMPLE_TIME_15 | ADC_CONV_CLK_Tcy 
     // define setup parameters for OpenADC10
-    #define PARAM4 ENABLE_AN1_ANA | ENABLE_AN5_ANA 
+    #define PARAM4  ENABLE_AN0_ANA | ENABLE_AN1_ANA | ENABLE_AN5_ANA
     // define setup parameters for OpenADC10
-    #define PARAM5 SKIP_SCAN_ALL 
-    // configure to sample AN5 and AN1 on MUX A and B
-    SetChanADC10( ADC_CH0_NEG_SAMPLEA_NVREF | ADC_CH0_POS_SAMPLEA_AN1 \
-            | ADC_CH0_NEG_SAMPLEB_NVREF | ADC_CH0_POS_SAMPLEB_AN5 );
+    #define PARAM5 SKIP_SCAN_AN2 | SKIP_SCAN_AN3 | SKIP_SCAN_AN4 \
+            | SKIP_SCAN_AN6 | SKIP_SCAN_AN7 | SKIP_SCAN_AN8 | SKIP_SCAN_AN9 \
+            | SKIP_SCAN_AN10 | SKIP_SCAN_AN11 | SKIP_SCAN_AN12 \
+            | SKIP_SCAN_AN13 | SKIP_SCAN_AN14 | SKIP_SCAN_AN15
+    // configure to sample AN0, AN1, and AN5 on MUX A and B
+    SetChanADC10(ADC_CH0_NEG_SAMPLEA_NVREF);
     // configure ADC 
     OpenADC10( PARAM1, PARAM2, PARAM3, PARAM4, PARAM5 ); 
 
