@@ -11,8 +11,8 @@
 
 #define Fs 20000.0  // 70kHz
 #define two32 4294967296.0 // 2^32 
-//#define NUM_KEYS 13
-#define NUM_KEYS 2
+#define NUM_KEYS 13
+//#define NUM_KEYS 2
 
 volatile SpiChannel spiChn = SPI_CHANNEL2 ;	// the SPI channel to use
 // for 60 MHz PB clock use divide-by-3
@@ -32,10 +32,10 @@ volatile fix16 sin_table[SINE_TABLE_SIZE];
 volatile short DAC_data;
 
 // A4, C#4, and F#4 
-//volatile int frequencies[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // actual frequencies 
-//volatile int frequencies_set[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // for freq modulation
-volatile int frequencies[NUM_KEYS] = {262, 277};
-volatile int frequencies_set[NUM_KEYS] = {262, 277};
+volatile int frequencies[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // actual frequencies 
+volatile int frequencies_set[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // for freq modulation
+//volatile int frequencies[NUM_KEYS] = {262, 277};
+//volatile int frequencies_set[NUM_KEYS] = {262, 277};
 volatile int frequencies_FM[NUM_KEYS];
 // the DDS units:
 //volatile unsigned int phase_accum_main = 0, phase_incr_main = frequency*two32/Fs;
@@ -176,9 +176,9 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     	}
     }
     // normalize key presses
-    if (num_keys_pressed) {
-        DAC_data = DAC_data/num_keys_pressed;
-    }
+//    if (num_keys_pressed) {
+//        DAC_data = DAC_data/num_keys_pressed;
+//    }
     
     if (flanger_on) {  // toggled by button in pt_ui
         delay_counter++;
@@ -265,29 +265,29 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 }
 
 
-static PT_THREAD(protothread_read_repeat(struct pt *pt))
-{
-    PT_BEGIN(pt);
-    mPORTASetPinsDigitalIn(BIT_0);
-    static int state = 0;
-    while (1) {
-        PT_YIELD_TIME_msec(30);
-        if (mPORTAReadBits(BIT_0)) {
-            repeat_mode_on = 1;
-            if (!state) {
-                keypresses[keypress_count] = PT_GET_TIME();
-                keypress_ID[keypress_count] = -1; 
-                valid_size = keypress_count;
-            }
-            state = 1;
-        }
-        else {
-            repeat_mode_on = 0;
-            state = 0;
-        }
-    }
-    PT_END(pt);
-}
+//static PT_THREAD(protothread_read_repeat(struct pt *pt))
+//{
+//    PT_BEGIN(pt);
+//    mPORTASetPinsDigitalIn(BIT_0);
+//    static int state = 0;
+//    while (1) {
+//        PT_YIELD_TIME_msec(30);
+//        if (mPORTAReadBits(BIT_0)) {
+//            repeat_mode_on = 1;
+//            if (!state) {
+//                keypresses[keypress_count] = PT_GET_TIME();
+//                keypress_ID[keypress_count] = -1; 
+//                valid_size = keypress_count;
+//            }
+//            state = 1;
+//        }
+//        else {
+//            repeat_mode_on = 0;
+//            state = 0;
+//        }
+//    }
+//    PT_END(pt);
+//}
 
 
 static PT_THREAD (protothread_read_button(struct pt *pt))
@@ -382,10 +382,10 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
         }
         // print every 500 ms -- will be removed later anyway 
         if (counter%50) {  
-            tft_fillRoundRect(0, 90, 100, 10, 1, ILI9340_BLACK);
+            tft_fillRoundRect(0, 90, 200, 20, 1, ILI9340_BLACK);
             tft_setCursor(0,90);
             tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-            sprintf(buffer, "%d", button_input);
+            sprintf(buffer, "%d", DAC_data);
             tft_writeString(buffer);
         }
         counter++;
@@ -470,7 +470,6 @@ static PT_THREAD (protothread_enter_button(struct pt *pt))
 	PT_END(pt);
 }
 
-
 // UI globals
 static short modified_fx;
 static short modified_pitch;
@@ -488,27 +487,40 @@ static int sus_pressed;   // reads input for sustain
 static int stack_on;
 // repeat button
 static int repeat_pressed;
+static int repeat_state = 0;
 
-/* Thread that Controls the User Interface */
+/* Thread that processes user inputs */
 static PT_THREAD (protothread_ui(struct pt *pt))
 {
     PT_BEGIN(pt);
     char buffer[256];
     while (1) {
         PT_YIELD_TIME_msec(30);
-        // flanger button state machine ===================================== 
-        if(!flange_state) {
-            if (flange_pressed) {  
-                flange_state = 1;
-                // toggle flanger_on 
-                if (!flanger_on) flanger_on = 1;
-                else flanger_on = 0;  
-            }
+        // flanger button state machine ====================================== 
+        if (!flange_state && flange_pressed) {  
+            flange_state = 1;
+            // toggle flanger_on 
+            if (!flanger_on) flanger_on = 1;
+            else flanger_on = 0;  
         }
         else if (!flange_pressed) {
                 flange_state = 0;
         }
         
+        // repeat button state machine =======================================
+        if (repeat_pressed && !repeat_state) {
+            repeat_state = 1;
+            // toggle repeat_mode_on
+            if (!repeat_mode_on) repeat_mode_on = 1;
+            else repeat_mode_on = 0;
+            // record
+            keypresses[keypress_count] = PT_GET_TIME();
+            keypress_ID[keypress_count] = -1; 
+            valid_size = keypress_count;
+        }
+        else if (!repeat_pressed) {
+            repeat_state = 0;
+        }
         
         // divide by 4 for visibility improvement
         modified_fx = ReadADC10(0)>>3;
@@ -532,13 +544,11 @@ static PT_THREAD (protothread_ui(struct pt *pt))
         }
         
         // sustain button state machine =======================================
-        if(!sus_state) {
-            if (sus_pressed) {  
-                sus_state = 1;
-                // toggle flanger_on 
-                if (!sustain) sustain = 1;
-                else sustain = 0;  
-            }
+        if(!sus_state && sus_pressed) { 
+            sus_state = 1;
+            // toggle flanger_on 
+            if (!sustain) sustain = 1;
+            else sustain = 0;  
         }
         else if (!sus_pressed) {
                 sus_state = 0;
@@ -547,12 +557,13 @@ static PT_THREAD (protothread_ui(struct pt *pt))
     PT_END(pt);
 }
 
+/* Thread showing display for user interface */
 static PT_THREAD (protothread_ui_print(struct pt *pt))
 {
     PT_BEGIN(pt);
     char buffer[256];
     while (1) {
-        // print every 500 ms to prevent synthesis failure
+        // update display once every 500ms
         PT_YIELD_TIME_msec(500);
         //tft_fillRoundRect(0, 40, 450, 250, 1, ILI9340_BLACK);
         // flanger print ==================================================
@@ -571,13 +582,12 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         tft_fillRoundRect(0, 60, 125, 10, 1, ILI9340_BLACK);
         tft_setCursor(1,60);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-//        if (repeat_mode_on) {
-//            sprintf(buffer, "Repeat Mode: on");
-//        }
-//        else {
-//            sprintf(buffer, "Repeat Mode: off");
-//        }
-        sprintf(buffer, "Repeat Mode: %d", repeat_pressed);
+        if (repeat_mode_on) {
+            sprintf(buffer, "Repeat Mode: on, %d", repeat_pressed);
+        }
+        else {
+            sprintf(buffer, "Repeat Mode: off, %d", repeat_pressed);
+        }
         tft_writeString(buffer);
 
         // analog noise print =================================================
@@ -623,7 +633,6 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         if (sustain) sprintf(buffer, "Sustain: on, %d", sus_pressed);
         else sprintf(buffer, "Sustain: off, %d", sus_pressed);
         tft_writeString(buffer);
-        
         
         // mod_param print ====================================================
         tft_fillRoundRect(0, 190, 125, 10, 1, ILI9340_BLACK);
@@ -675,16 +684,17 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         // Triple ADC TEST:
         tft_fillRoundRect(0, 220, 200, 10, 1, ILI9340_BLACK);
         tft_setCursor(1,220);
-        static int adc0, adc1, adc2;
-        adc0 = ReadADC10(0); adc1 = ReadADC10(1); adc2 = ReadADC10(2);
+        static int adc0_eff, adc1_fq, adc2_tp;
+        adc0_eff = ReadADC10(0); adc1_fq = ReadADC10(1); adc2_tp = ReadADC10(2);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        sprintf(buffer, "ADC0: %d, ADC1: %d, ADC2: %d", adc0, adc1, adc2);
+        sprintf(buffer, "ADC0: %d, ADC1: %d, ADC2: %d", 
+                adc0_eff, adc1_fq, adc2_tp);
         tft_writeString(buffer);
         }
     PT_END(pt);
 }
 
-static PT_THREAD (protothread_read_mux(struct pt *pt ))
+static PT_THREAD (protothread_read_mux(struct pt *pt )) 
 {
     PT_BEGIN(pt);
     char buffer[256];
@@ -704,8 +714,8 @@ static PT_THREAD (protothread_read_mux(struct pt *pt ))
         //yield necessary otherwise you use the select mask from select signal
         PT_YIELD_TIME_msec(10);
         flange_pressed = mPORTBReadBits(BIT_8);
-        // FM Synth Toggle ====================================================
-        // ABC = 100
+//         FM Synth Toggle ====================================================
+//         ABC = 100
         mPORTBClearBits(BIT_10 | BIT_13);
         mPORTBSetBits(BIT_7);
         PT_YIELD_TIME_msec(10);
@@ -758,12 +768,12 @@ void adc_config(void)
     #define PARAM3 ADC_CONV_CLK_PB | ADC_SAMPLE_TIME_15 | ADC_CONV_CLK_Tcy 
     // define setup parameters for OpenADC10
     #define PARAM4  ENABLE_AN0_ANA | ENABLE_AN1_ANA | ENABLE_AN5_ANA
-    // define setup parameters for OpenADC10
+    // define setup parameters for OpenADC10 -- skip for all except AN0,1,5
     #define PARAM5 SKIP_SCAN_AN2 | SKIP_SCAN_AN3 | SKIP_SCAN_AN4 \
             | SKIP_SCAN_AN6 | SKIP_SCAN_AN7 | SKIP_SCAN_AN8 | SKIP_SCAN_AN9 \
             | SKIP_SCAN_AN10 | SKIP_SCAN_AN11 | SKIP_SCAN_AN12 \
             | SKIP_SCAN_AN13 | SKIP_SCAN_AN14 | SKIP_SCAN_AN15
-    // configure to sample AN0, AN1, and AN5 on MUX A and B
+    // configure to sample AN0, AN1, and AN5 on MUX A
     SetChanADC10(ADC_CH0_NEG_SAMPLEA_NVREF);
     // configure ADC 
     OpenADC10( PARAM1, PARAM2, PARAM3, PARAM4, PARAM5 ); 
@@ -780,7 +790,6 @@ void main(void)
     // 200 is 200 ksamples/sec
     // increased to 572 from 200 because was leading to incorrect sine freq
     //changing from 143
-    //#define ISR_PERIOD 
     OpenTimer2(T2_ON | T2_SOURCE_INT | T2_PS_1_4, 508);   
     ConfigIntTimer2(T2_INT_ON | T2_INT_PRIOR_2);
     mT2ClearIntFlag(); 
@@ -796,14 +805,14 @@ void main(void)
     // control CS for DAC
     mPORTBSetPinsDigitalOut(BIT_4);
     mPORTBSetBits(BIT_4);
-    // divide Fpb by 2, configure the I/O ports. Not using SS in this example
+    // divide Fpb by 2, configure the I/O ports. Not using SS here
     // 16 bit transfer CKP=1 CKE=1
     // possibles SPI_OPEN_CKP_HIGH;   SPI_OPEN_SMP_END;  SPI_OPEN_CKE_REV
-    // For any given peripherial, you will need to match these
+    // For any given peripheral, will need to match these
     
     SpiChnOpen(spiChn, SPI_OPEN_ON | SPI_OPEN_MODE16 | SPI_OPEN_MSTEN | 
             SPI_OPEN_CKE_REV , spiClkDiv);
-   
+    // Analog stuff
     ANSELA = 0; ANSELB = 0; CM1CON = 0; CM2CON = 0;
     
     // config threads =========================================================
@@ -812,18 +821,16 @@ void main(void)
     // setup system wide interrupts  ==========================================
     INTEnableSystemMultiVectoredInt();
     
-    // TFT ====================================================================
+    // TFT Setup ==============================================================
     // init the display
     tft_init_hw();
     tft_begin();
     tft_fillScreen(ILI9340_BLACK);
     //240x320 vertical display
-    tft_setRotation(1); // Use tft_setRotation(1) for 320x240
-    
-    // build the sine lookup table
-    // scaled to produce values between 0 and 4096
+    tft_setRotation(1);  // tft_setRotation(1) for 320x240
     
     // Sine Tables ============================================================
+    // scaled to produce values between 0 and 4096
     int i;
     for (i = 0; i < SINE_TABLE_SIZE; i++){
         sin_table[i] =  
@@ -840,7 +847,6 @@ void main(void)
     for (k=0; k<MAX_FLANGER_SIZE; k++) {
         flange_buffer[k] = 0;
     }
-    
     
     // PT INIT ================================================================
     PT_INIT(&pt_read_button);
@@ -864,7 +870,7 @@ void main(void)
         }
         PT_SCHEDULE(protothread_read_inputs(&pt_read_inputs));
         PT_SCHEDULE(protothread_freq_tune(&pt_freq_tune));
-        PT_SCHEDULE(protothread_read_repeat(&pt_read_repeat));
+        //PT_SCHEDULE(protothread_read_repeat(&pt_read_repeat));
         PT_SCHEDULE(protothread_cycle_button(&pt_cycle_button));
         PT_SCHEDULE(protothread_enter_button(&pt_enter_button));
         PT_SCHEDULE(protothread_read_mux(&pt_read_mux));
