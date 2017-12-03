@@ -382,7 +382,7 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
         }
         // print every 500 ms -- will be removed later anyway 
         if (counter%50) {  
-            //tft_fillRoundRect(0, 90, 400, 60, 1, ILI9340_BLACK);
+            tft_fillRoundRect(0, 90, 100, 10, 1, ILI9340_BLACK);
             tft_setCursor(0,90);
             tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
             sprintf(buffer, "%d", button_input);
@@ -406,11 +406,6 @@ static PT_THREAD (protothread_cycle_button(struct pt *pt))
 	char buffer[60];
 	while (1) {	
 		PT_YIELD_TIME_msec(30);
-        
-        tft_setCursor(1,220);
-        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        sprintf(buffer, "cycle_pressed: %d", cycle_pressed);
-        tft_writeString(buffer);
         
 		if (!cycle_state) {
 			if (cycle_pressed) {
@@ -444,10 +439,6 @@ static PT_THREAD (protothread_enter_button(struct pt *pt))
     char buffer[60];
 	while (1) {
 		PT_YIELD_TIME_msec(30);
-        tft_setCursor(1,215);
-        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        sprintf(buffer, "enter button: %d", enter_pressed);
-        tft_writeString(buffer);
 		if (!enter_state) {
 			if (enter_pressed) {
 				enter_state = 1;
@@ -563,9 +554,10 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
     while (1) {
         // print every 500 ms to prevent synthesis failure
         PT_YIELD_TIME_msec(500);
-        tft_fillRoundRect(0, 40, 450, 250, 1, ILI9340_BLACK);
+        //tft_fillRoundRect(0, 40, 450, 250, 1, ILI9340_BLACK);
         // flanger print ==================================================
         tft_setCursor(1,40);
+        tft_fillRoundRect(0, 40, 125, 10, 1, ILI9340_BLACK);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         if (flanger_on){
             sprintf(buffer, "Flanger: on, %d", flange_pressed);
@@ -576,7 +568,7 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         tft_writeString(buffer);
 
         // repeat mode print ==================================================
-        //tft_fillRoundRect(0, 60, 400, 60, 1, ILI9340_BLACK);
+        tft_fillRoundRect(0, 60, 125, 10, 1, ILI9340_BLACK);
         tft_setCursor(1,60);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
 //        if (repeat_mode_on) {
@@ -589,7 +581,7 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         tft_writeString(buffer);
 
         // analog noise print =================================================
-        //tft_fillRoundRect(0, 75, 400, 60, 1, ILI9340_BLACK);
+        tft_fillRoundRect(0, 75, 125, 10, 1, ILI9340_BLACK);
         tft_setCursor(1,75);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         if (analog_noise_on) {
@@ -601,23 +593,23 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         tft_writeString(buffer);
 
         // Tempo Display ======================================================
-          
-        //tft_fillRoundRect(75, 100, 255, 25, 1, ILI9340_BLACK);
+        tft_fillRoundRect(75, 100, 130, 25, 1, ILI9340_BLACK);
         tft_fillRoundRect(75, 100, modified_fx, 25, 1, ILI9340_RED );
 
         // Pitch Display ======================================================
-        //tft_fillRoundRect(75, 125, 255, 25, 1, ILI9340_BLACK);
+        tft_fillRoundRect(75, 125, 130, 25, 1, ILI9340_BLACK);
         tft_fillRoundRect(75, 125, modified_pitch, 25, 1, ILI9340_GREEN );
 
-        // ADC 2 Test
-        //tft_fillRoundRect(0, 150, 400, 60, 1, ILI9340_BLACK);
-        tft_setCursor(1,155);
+        // ADC 2 Test -- Remove in final
+        tft_fillRoundRect(0, 160, 200, 10, 1, ILI9340_BLACK);
+        tft_setCursor(1,160);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         sprintf(buffer, "freq_adc (AN5) : %d, %1.3f", freq_adc, 
                 ((float)(1.5*(freq_adc-502))/1024.0)+1);
         tft_writeString(buffer);
         
         // FM synth state display =============================================
+        tft_fillRoundRect(0, 170, 125, 10, 1, ILI9340_BLACK);
         tft_setCursor(1,170);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         if (fm_on) sprintf(buffer, "FM Synth: on, %d", fm_pressed);
@@ -625,6 +617,7 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         tft_writeString(buffer);
         
         // Sustain state display ==============================================
+        tft_fillRoundRect(0, 180, 125, 10, 1, ILI9340_BLACK);
         tft_setCursor(1,180);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         if (sustain) sprintf(buffer, "Sustain: on, %d", sus_pressed);
@@ -633,40 +626,53 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         
         
         // mod_param print ====================================================
+        tft_fillRoundRect(0, 190, 125, 10, 1, ILI9340_BLACK);
         switch (mod_param) {
             case MOD_FM:
-                tft_setCursor(1,200);
+                tft_setCursor(1,190);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
                 sprintf(buffer, "Modify FM Synthesis");
                 tft_writeString(buffer);
                 break;
             case MOD_FLANGER:
-                tft_setCursor(1,200);
+                tft_setCursor(1,190);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
                 sprintf(buffer, "Modify Flanger");
                 tft_writeString(buffer);
                 break;
             case MOD_ATK:
-                tft_setCursor(1,200);
+                tft_setCursor(1,190);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
                 sprintf(buffer, "Modify Attack Time");
                 tft_writeString(buffer);
                 break;
             case MOD_DECAY:
-                tft_setCursor(1,200);
+                tft_setCursor(1,190);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
                 sprintf(buffer, "Modify Decay Time: %d");
                 tft_writeString(buffer);
                 break;
             default:
                 // do something 
-                tft_setCursor(1,200);
+                tft_setCursor(1,190);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
                 sprintf(buffer, "mod_param error");
                 tft_writeString(buffer);
                 break;      
         }
-    }
+        // Cycle Button Display ===============================================
+        tft_fillRoundRect(0, 200, 125, 10, 1, ILI9340_BLACK);
+        tft_setCursor(1,200);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        sprintf(buffer, "cycle_pressed: %d", cycle_pressed);
+        tft_writeString(buffer);
+        // Enter Button Display ===============================================
+        tft_fillRoundRect(0, 210, 125, 10, 1, ILI9340_BLACK);
+        tft_setCursor(1,210);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        sprintf(buffer, "enter button: %d", enter_pressed);
+        tft_writeString(buffer);
+        }
     PT_END(pt);
 }
 
@@ -688,43 +694,43 @@ static PT_THREAD (protothread_read_mux(struct pt *pt ))
         //ABC = 000;
         mPORTBClearBits(BIT_7 | BIT_10 | BIT_13);
         //yield necessary otherwise you use the select mask from select signal
-        PT_YIELD_TIME_msec(5);
+        PT_YIELD_TIME_msec(10);
         flange_pressed = mPORTBReadBits(BIT_8);
         // FM Synth Toggle ====================================================
         // ABC = 100
         mPORTBClearBits(BIT_10 | BIT_13);
         mPORTBSetBits(BIT_7);
-        PT_YIELD_TIME_msec(5);
+        PT_YIELD_TIME_msec(10);
         fm_pressed = mPORTBReadBits(BIT_8);
         // Sustain Toggle =====================================================
         // ABC = 010
         mPORTBClearBits(BIT_7 | BIT_13);
         mPORTBSetBits(BIT_10);
-        PT_YIELD_TIME_msec(5);
+        PT_YIELD_TIME_msec(10);
         sus_pressed = mPORTBReadBits(BIT_8);
         // Tone Stack Switch ==================================================
         // ABC = 110
         mPORTBClearBits(BIT_13);
         mPORTBSetBits(BIT_7 | BIT_10);
-        PT_YIELD_TIME_msec(5);
+        PT_YIELD_TIME_msec(10);
         analog_noise_on = mPORTBReadBits(BIT_8); 
         // Cycle Button =======================================================
         // ABC = 001 
         mPORTBClearBits(BIT_7 | BIT_10);
         mPORTBSetBits(BIT_13);
-        PT_YIELD_TIME_msec(5);
+        PT_YIELD_TIME_msec(10);
 		cycle_pressed = mPORTBReadBits(BIT_8);
         // Enter Button =======================================================
         // ABC = 101
         mPORTBClearBits(BIT_10);
         mPORTBSetBits(BIT_7 | BIT_13);
-        PT_YIELD_TIME_msec(5);
+        PT_YIELD_TIME_msec(10);
 		enter_pressed = mPORTBReadBits(BIT_8);
         // Repeat Button ======================================================
         // ABC = 011
         mPORTBClearBits(BIT_7);
         mPORTBSetBits(BIT_10 | BIT_13);
-        PT_YIELD_TIME_msec(5);
+        PT_YIELD_TIME_msec(10);
 		repeat_pressed = mPORTBReadBits(BIT_8);
     }
     PT_END(pt);
