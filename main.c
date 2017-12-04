@@ -40,18 +40,18 @@ volatile int frequencies_FM[NUM_KEYS];
 // the DDS units:
 //volatile unsigned int phase_accum_main = 0, phase_incr_main = frequency*two32/Fs;
 // for sine table
-volatile unsigned int phase_accum_main[NUM_KEYS] = {0,0};
+volatile unsigned int phase_accum_main[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
 volatile unsigned int phase_incr_main[NUM_KEYS];
 // for FM synthesis
-volatile unsigned int phase_accum_FM[NUM_KEYS] = {0,0};
+volatile unsigned int phase_accum_FM[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
 volatile unsigned int phase_incr_FM[NUM_KEYS];
 
 //volatile int modulation_constant=0; 
 volatile int ramp_done = 0;
 volatile int ramp_counter = 0;
-volatile int ramp_flag[NUM_KEYS]= {0, 0};
-volatile int button_pressed[NUM_KEYS] = {0, 0};
-volatile int button_pressed_in[NUM_KEYS] = {0, 0};
+volatile int ramp_flag[NUM_KEYS]= {0,0,0,0,0,0,0,0,0,0,0,0,0};
+volatile int button_pressed[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
+volatile int button_pressed_in[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
 volatile int num_keys_pressed;
 
 #define KEYPRESS_SIZE 256
@@ -59,7 +59,7 @@ volatile int keypresses[KEYPRESS_SIZE];
 volatile int keypress_ID[KEYPRESS_SIZE];
 volatile int keypress_count = 0;
 
-volatile int repeat_mode_on = 0;
+volatile int repeat_mode_on = 1;
 volatile int valid_size;
 volatile float tempo = 1;
 
@@ -86,8 +86,8 @@ volatile fix16 dk_fm=float2fix16(0.99), attack_fm=float2fix16(0.02);
 volatile fix16 dk_state_fm[NUM_KEYS], attack_state_fm[NUM_KEYS];
 volatile fix16 dk_state_main[NUM_KEYS], attack_state_main[NUM_KEYS];
 volatile fix16 fm_depth=float2fix16(2);
-volatile fix16 env_fm[NUM_KEYS] = {0,0};
-volatile fix16 env_main[NUM_KEYS] = {0,0};
+volatile fix16 env_fm[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
+volatile fix16 env_main[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 volatile fix16 dk_state_fm_temp;
 volatile fix16 dk_state_main_temp;
@@ -176,9 +176,9 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
     	}
     }
     // normalize key presses
-//    if (num_keys_pressed) {
-//        DAC_data = DAC_data/num_keys_pressed;
-//    }
+    if (num_keys_pressed) {
+        DAC_data = DAC_data/num_keys_pressed;
+    }
     
     if (flanger_on) {  // toggled by button in pt_ui
         delay_counter++;
@@ -265,31 +265,6 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 }
 
 
-//static PT_THREAD(protothread_read_repeat(struct pt *pt))
-//{
-//    PT_BEGIN(pt);
-//    mPORTASetPinsDigitalIn(BIT_0);
-//    static int state = 0;
-//    while (1) {
-//        PT_YIELD_TIME_msec(30);
-//        if (mPORTAReadBits(BIT_0)) {
-//            repeat_mode_on = 1;
-//            if (!state) {
-//                keypresses[keypress_count] = PT_GET_TIME();
-//                keypress_ID[keypress_count] = -1; 
-//                valid_size = keypress_count;
-//            }
-//            state = 1;
-//        }
-//        else {
-//            repeat_mode_on = 0;
-//            state = 0;
-//        }
-//    }
-//    PT_END(pt);
-//}
-
-
 static PT_THREAD (protothread_read_button(struct pt *pt))
 {
     PT_BEGIN(pt);
@@ -331,7 +306,7 @@ static PT_THREAD (protothread_repeat_buttons(struct pt *pt))
     static int yield_length;
     static int i;
     static int j;
-    char buffer[256];
+    //char buffer[256];
     while (1) {
         for (j = 0; j < NUM_KEYS; j++) {
             button_pressed[j]=0;
@@ -381,13 +356,13 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
             phase_incr_FM[j]  = frequencies_FM[j]*two32/Fs;
         }
         // print every 500 ms -- will be removed later anyway 
-        if (counter%50) {  
-            tft_fillRoundRect(0, 90, 200, 20, 1, ILI9340_BLACK);
-            tft_setCursor(0,90);
-            tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-            sprintf(buffer, "%d", DAC_data);
-            tft_writeString(buffer);
-        }
+//        if (counter%50) {  
+//            tft_fillRoundRect(0, 90, 200, 20, 1, ILI9340_BLACK);
+//            tft_setCursor(0,90);
+//            tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
+//            sprintf(buffer, "%d", button_pressed[6]);
+//            tft_writeString(buffer);
+//        }
         counter++;
     }
     PT_END(pt);
@@ -471,7 +446,7 @@ static PT_THREAD (protothread_enter_button(struct pt *pt))
 }
 
 // UI globals
-static short modified_fx;
+static short modified_tempo;
 static short modified_pitch;
 static int freq_adc = 0;
 // flange stuff
@@ -487,7 +462,7 @@ static int sus_pressed;   // reads input for sustain
 static int stack_on;
 // repeat button
 static int repeat_pressed;
-static int repeat_state = 0;
+static int repeat_state = 1;
 
 /* Thread that processes user inputs */
 static PT_THREAD (protothread_ui(struct pt *pt))
@@ -508,7 +483,7 @@ static PT_THREAD (protothread_ui(struct pt *pt))
         }
         
         // repeat button state machine =======================================
-        if (repeat_pressed && !repeat_state) {
+        if (!repeat_state && repeat_pressed) {
             repeat_state = 1;
             // toggle repeat_mode_on
             if (!repeat_mode_on) repeat_mode_on = 1;
@@ -520,10 +495,16 @@ static PT_THREAD (protothread_ui(struct pt *pt))
         }
         else if (!repeat_pressed) {
             repeat_state = 0;
+            int i;
+//            for (i=0; i<=keypress_count; i++) {
+//                keypresses[i] = 0;
+//                keypress_ID[i] = 0;
+//            }
+            keypress_count = 0;
         }
         
         // divide by 4 for visibility improvement
-        modified_fx = ReadADC10(0)>>3;
+        modified_tempo= ReadADC10(2)>>3;
         
         // pitch display setting
         modified_pitch = frequencies[1]>>3;
@@ -589,35 +570,41 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
             sprintf(buffer, "Repeat Mode: off, %d", repeat_pressed);
         }
         tft_writeString(buffer);
-
-        // analog noise print =================================================
-        tft_fillRoundRect(0, 75, 125, 10, 1, ILI9340_BLACK);
-        tft_setCursor(1,75);
+        
+        tft_fillRoundRect(100,60,125,10,1,ILI9340_BLACK);
+        tft_setCursor(200,60);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        if (analog_noise_on) {
-            sprintf(buffer, "Analog Noise: on, %d", analog_noise_on);
-        }
-        else {
-            sprintf(buffer, "Analog Noise: off, %d", analog_noise_on);
-        }
+        sprintf("%d %d %d %d", keypresses[0],keypresses[1],keypresses[2],keypresses[3]);
         tft_writeString(buffer);
 
+        // analog noise print =================================================
+//        tft_fillRoundRect(0, 75, 125, 10, 1, ILI9340_BLACK);
+//        tft_setCursor(1,75);
+//        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+//        if (analog_noise_on) {
+//            sprintf(buffer, "Analog Noise: on, %d", analog_noise_on);
+//        }
+//        else {
+//            sprintf(buffer, "Analog Noise: off, %d", analog_noise_on);
+//        }
+//        tft_writeString(buffer);
+
         // Tempo Display ======================================================
+        tft_setCursor(1,100);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        sprintf(buffer, "Tempo:");
+        tft_writeString(buffer);
         tft_fillRoundRect(75, 100, 130, 25, 1, ILI9340_BLACK);
-        tft_fillRoundRect(75, 100, modified_fx, 25, 1, ILI9340_RED );
+        tft_fillRoundRect(75, 100, modified_tempo, 25, 1, ILI9340_RED );
 
         // Pitch Display ======================================================
+        tft_setCursor(1,125);
+        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
+        sprintf(buffer, "Pitch:");
+        tft_writeString(buffer);
         tft_fillRoundRect(75, 125, 130, 25, 1, ILI9340_BLACK);
         tft_fillRoundRect(75, 125, modified_pitch, 25, 1, ILI9340_GREEN );
 
-        // ADC 2 Test -- Remove in final
-        tft_fillRoundRect(0, 160, 200, 10, 1, ILI9340_BLACK);
-        tft_setCursor(1,160);
-        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        sprintf(buffer, "freq_adc (AN5) : %d, %1.3f", freq_adc, 
-                ((float)(1.5*(freq_adc-502))/1024.0)+1);
-        tft_writeString(buffer);
-        
         // FM synth state display =============================================
         tft_fillRoundRect(0, 170, 125, 10, 1, ILI9340_BLACK);
         tft_setCursor(1,170);
@@ -635,34 +622,33 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         tft_writeString(buffer);
         
         // mod_param print ====================================================
-        tft_fillRoundRect(0, 190, 125, 10, 1, ILI9340_BLACK);
+        tft_fillRoundRect(0, 190, 500, 10, 1, ILI9340_BLACK);
         switch (mod_param) {
             case MOD_FM:
                 tft_setCursor(1,190);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-                sprintf(buffer, "Modify FM Synthesis");
+                sprintf(buffer, "Modify FM Synthesis, FM_PARAM = %3.2f",fx*3+1);
                 tft_writeString(buffer);
                 break;
             case MOD_FLANGER:
                 tft_setCursor(1,190);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-                sprintf(buffer, "Modify Flanger");
+                sprintf(buffer, "Modify Flanger, FLANGER_PARAM = %4.1f", fx*1000+100);
                 tft_writeString(buffer);
                 break;
             case MOD_ATK:
                 tft_setCursor(1,190);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-                sprintf(buffer, "Modify Attack Time");
+                sprintf(buffer, "Modify Attack Time ATK_PARAM = %1.4f", fx*.1);
                 tft_writeString(buffer);
                 break;
             case MOD_DECAY:
                 tft_setCursor(1,190);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-                sprintf(buffer, "Modify Decay Time: %d");
+                sprintf(buffer, "Modify Decay Time DK_PARAM = %1.4f", fx*.1+.9);
                 tft_writeString(buffer);
                 break;
             default:
-                // do something 
                 tft_setCursor(1,190);
                 tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
                 sprintf(buffer, "mod_param error");
@@ -827,7 +813,7 @@ void main(void)
     tft_begin();
     tft_fillScreen(ILI9340_BLACK);
     //240x320 vertical display
-    tft_setRotation(1);  // tft_setRotation(1) for 320x240
+    tft_setRotation(3);  // tft_setRotation(1) for 320x240
     
     // Sine Tables ============================================================
     // scaled to produce values between 0 and 4096
@@ -870,7 +856,6 @@ void main(void)
         }
         PT_SCHEDULE(protothread_read_inputs(&pt_read_inputs));
         PT_SCHEDULE(protothread_freq_tune(&pt_freq_tune));
-        //PT_SCHEDULE(protothread_read_repeat(&pt_read_repeat));
         PT_SCHEDULE(protothread_cycle_button(&pt_cycle_button));
         PT_SCHEDULE(protothread_enter_button(&pt_enter_button));
         PT_SCHEDULE(protothread_read_mux(&pt_read_mux));
