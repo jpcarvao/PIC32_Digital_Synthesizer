@@ -18,7 +18,7 @@ volatile SpiChannel spiChn = SPI_CHANNEL2 ;	// the SPI channel to use
 // for 60 MHz PB clock use divide-by-3
 volatile int spiClkDiv = 2 ; // 20 MHz DAC clock
 
-// === thread structures ============================================
+// === thread structures ======================================================
 static struct pt pt_read_button, pt_read_inputs, pt_read_repeat, pt_freq_tune, 
         pt_repeat_buttons, pt_cycle_button, pt_enter_button, pt_ui, 
         pt_ui_print, pt_read_mux;  
@@ -27,18 +27,19 @@ static struct pt pt_read_button, pt_read_inputs, pt_read_repeat, pt_freq_tune,
 #define SINE_TABLE_SIZE 256
 volatile fix16 sin_table[SINE_TABLE_SIZE];
 
-//== Timer 2 interrupt handler ===========================================
+//== Timer 2 interrupt handler ================================================
 // actual scaled DAC 
 volatile short DAC_data;
 
-// A4, C#4, and F#4 
-volatile int frequencies[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // actual frequencies 
-volatile int frequencies_set[NUM_KEYS] = {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  // for freq modulation
-//volatile int frequencies[NUM_KEYS] = {262, 277};
-//volatile int frequencies_set[NUM_KEYS] = {262, 277};
+// actual frequencies 
+volatile int frequencies[NUM_KEYS] = 
+        {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523}; 
+// for freq modulation
+volatile int frequencies_set[NUM_KEYS] = 
+        {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  
+
 volatile int frequencies_FM[NUM_KEYS];
 // the DDS units:
-//volatile unsigned int phase_accum_main = 0, phase_incr_main = frequency*two32/Fs;
 // for sine table
 volatile unsigned int phase_accum_main[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
 volatile unsigned int phase_incr_main[NUM_KEYS];
@@ -58,6 +59,7 @@ volatile int num_keys_pressed;
 volatile int keypresses[KEYPRESS_SIZE];
 volatile int keypress_ID[KEYPRESS_SIZE];
 volatile int keypress_count = 0;
+volatile int start_recording = 0;
 
 volatile int repeat_mode_on = 1;
 volatile int valid_size;
@@ -103,7 +105,7 @@ volatile int button_input=0;
 // UI STUFF
 volatile int flanger_on;
 volatile int analog_noise_on;
-volatile int fm_on = 1;     // donates if fm synth is on (on at startup)
+volatile int fm_on = 1;  // donates if fm synth is on (on at startup)
 
 /* Auxiliary Function definitions */
 void adc_config(void);
@@ -165,13 +167,14 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
    		if (button_pressed_in[i] || ramp_flag[i]==0) {
             phase_accum_FM[i] += phase_incr_FM[i];
             if (fm_on) {//toggled by button in pt ui
-                phase_accum_main[i] += phase_incr_main[i] + multfix16(env_fm[i],sin_table[phase_accum_FM[i]>>24]);
+                phase_accum_main[i] += phase_incr_main[i] + 
+                        multfix16(env_fm[i],sin_table[phase_accum_FM[i]>>24]);
             }
             else {
                 phase_accum_main[i] += phase_incr_main[i];
             }
-		    DAC_data += ((fix2int16(env_main[i]<<9))*fix2int16(sin_table[phase_accum_main[i]>>24]))>>9;
-            //DAC_data += fix2int16(sin_table[phase_accum_main[i]>>24]);
+		    DAC_data += ((fix2int16(env_main[i]<<9))*
+                    fix2int16(sin_table[phase_accum_main[i]>>24]))>>9;
 		    num_keys_pressed++;
     	}
     }
@@ -217,7 +220,6 @@ void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
      mPORTBClearBits(BIT_4); // start transaction
     // write to spi2 
     WriteSPI2( DAC_config_chan_A | ((DAC_data+delay_signal)>>1)+2048);
-    //WriteSPI2( DAC_config_chan_A | (delay_signal)+2048);
     while (SPI2STATbits.SPIBUSY); // wait for end of transaction
     // CS high
     junk = ReadSPI2(); 
@@ -236,7 +238,8 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
             button_pressed_in[i] = button_pressed[i];
             ramp_flag[i] = 0;
 			if (button_pressed_in[i]) {
-				//ramp up if nothing was pressed before and now something is pressed, indicating a new sound
+				// ramp up if nothing was pressed before 
+                // and now something is pressed, indicating a new sound
                 if (!pressed_old[i]) {
                     ramp_flag[i] = 1;
                     //record time of press/release and which key was pressed/released
@@ -251,7 +254,7 @@ static PT_THREAD (protothread_read_inputs(struct pt *pt))
 			else {                
                 if (pressed_old[i]) {
                     //record time of press/release and which key was pressed/released
-                    if (!repeat_mode_on) {
+                    if (!repeat_mode_on) {                    
                         keypresses[keypress_count] = PT_GET_TIME();
                         keypress_ID[keypress_count] = i;
                         keypress_count++;
@@ -311,7 +314,7 @@ static PT_THREAD (protothread_repeat_buttons(struct pt *pt))
         for (j = 0; j < NUM_KEYS; j++) {
             button_pressed[j]=0;
         }
-        PT_YIELD_TIME_msec(keypresses[0]);
+        PT_YIELD_TIME_msec(keypresses[0]-start_recording);
         for (i = 0; i < valid_size; i++) {
             yield_length = keypresses[i+1] - keypresses[i];
             if (!button_pressed[keypress_ID[i]]) {
@@ -345,7 +348,7 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
         adc_val = ReadADC10(0);
         adc_freq = ReadADC10(1);
         scale = ((float)(1.5*(adc_freq-502))/1024.0)+1;
-        scale2 = ((float)adc_val/1024.0);
+        scale2 = ((float)(adc_val-500)/524.0);
         fx = scale2;
         for (j = 0; j < NUM_KEYS; j++) {
             frequencies[j] = ((int) frequencies_set[j] * scale);
@@ -355,14 +358,6 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
             frequencies_FM[j] = fm_ratio*frequencies[j];
             phase_incr_FM[j]  = frequencies_FM[j]*two32/Fs;
         }
-        // print every 500 ms -- will be removed later anyway 
-//        if (counter%50) {  
-//            tft_fillRoundRect(0, 90, 200, 20, 1, ILI9340_BLACK);
-//            tft_setCursor(0,90);
-//            tft_setTextColor(ILI9340_WHITE);  tft_setTextSize(2);
-//            sprintf(buffer, "%d", button_pressed[6]);
-//            tft_writeString(buffer);
-//        }
         counter++;
     }
     PT_END(pt);
@@ -376,12 +371,9 @@ static int cycle_state = 0;
 static PT_THREAD (protothread_cycle_button(struct pt *pt))
 {
 	PT_BEGIN(pt);
-	// push button set up
-    
-	char buffer[60];
+
 	while (1) {	
 		PT_YIELD_TIME_msec(30);
-        
 		if (!cycle_state) {
 			if (cycle_pressed) {
 				cycle_state = 1;
@@ -471,7 +463,7 @@ static PT_THREAD (protothread_ui(struct pt *pt))
     char buffer[256];
     while (1) {
         PT_YIELD_TIME_msec(30);
-        // flanger button state machine ====================================== 
+        // flanger button state machine ======================================= 
         if (!flange_state && flange_pressed) {  
             flange_state = 1;
             // toggle flanger_on 
@@ -482,29 +474,35 @@ static PT_THREAD (protothread_ui(struct pt *pt))
                 flange_state = 0;
         }
         
-        // repeat button state machine =======================================
+        // repeat button state machine ========================================
         if (!repeat_state && repeat_pressed) {
             repeat_state = 1;
             // toggle repeat_mode_on
-            if (!repeat_mode_on) repeat_mode_on = 1;
-            else repeat_mode_on = 0;
+            if (!repeat_mode_on) {
+                repeat_mode_on = 1;
+                keypresses[keypress_count] = PT_GET_TIME();
+                keypress_ID[keypress_count] = -1; 
+                valid_size = keypress_count;
+            }
+            else {
+                repeat_mode_on = 0;
+                start_recording = PT_GET_TIME();
+                int i;
+                for (i=0; i<=keypress_count; i++) {
+                    keypresses[i] = 0;
+                    keypress_ID[i] = 0;
+                }
+                keypress_count = 0;
+            }
             // record
-            keypresses[keypress_count] = PT_GET_TIME();
-            keypress_ID[keypress_count] = -1; 
-            valid_size = keypress_count;
         }
-        else if (!repeat_pressed) {
+        else if (repeat_state && !repeat_pressed) {
             repeat_state = 0;
-            int i;
-//            for (i=0; i<=keypress_count; i++) {
-//                keypresses[i] = 0;
-//                keypress_ID[i] = 0;
-//            }
-            keypress_count = 0;
         }
         
         // divide by 4 for visibility improvement
         modified_tempo= ReadADC10(2)>>3;
+        tempo = ReadADC10(2)/512.0;  // scale to 0-2
         
         // pitch display setting
         modified_pitch = frequencies[1]>>3;
@@ -547,7 +545,7 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         // update display once every 500ms
         PT_YIELD_TIME_msec(500);
         //tft_fillRoundRect(0, 40, 450, 250, 1, ILI9340_BLACK);
-        // flanger print ==================================================
+        // flanger print ======================================================
         tft_setCursor(1,40);
         tft_fillRoundRect(0, 40, 125, 10, 1, ILI9340_BLACK);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
@@ -560,34 +558,24 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         tft_writeString(buffer);
 
         // repeat mode print ==================================================
-        tft_fillRoundRect(0, 60, 125, 10, 1, ILI9340_BLACK);
+        tft_fillRoundRect(0, 60, 200, 10, 1, ILI9340_BLACK);
         tft_setCursor(1,60);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
         if (repeat_mode_on) {
-            sprintf(buffer, "Repeat Mode: on, %d", repeat_pressed);
+            sprintf(buffer, "Repeat Mode: on, %d, %i, %i", repeat_pressed, 
+                    keypresses[0], keypresses[1]);
         }
         else {
-            sprintf(buffer, "Repeat Mode: off, %d", repeat_pressed);
+            sprintf(buffer, "Repeat Mode: off, %d, %i, %i", repeat_pressed, 
+                    keypresses[0],keypresses[1]);
         }
         tft_writeString(buffer);
         
-        tft_fillRoundRect(100,60,125,10,1,ILI9340_BLACK);
-        tft_setCursor(200,60);
+        tft_fillRoundRect(150,60,125,10,1,ILI9340_BLACK);
+        tft_setCursor(150,60);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        sprintf("%d %d %d %d", keypresses[0],keypresses[1],keypresses[2],keypresses[3]);
-        tft_writeString(buffer);
-
-        // analog noise print =================================================
-//        tft_fillRoundRect(0, 75, 125, 10, 1, ILI9340_BLACK);
-//        tft_setCursor(1,75);
-//        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-//        if (analog_noise_on) {
-//            sprintf(buffer, "Analog Noise: on, %d", analog_noise_on);
-//        }
-//        else {
-//            sprintf(buffer, "Analog Noise: off, %d", analog_noise_on);
-//        }
-//        tft_writeString(buffer);
+        //sprintf("%d", keypresses[0]);
+        //tft_writeString(buffer);
 
         // Tempo Display ======================================================
         tft_setCursor(1,100);
@@ -823,13 +811,14 @@ void main(void)
                 float2fix16(2047*sin((float)i*6.283/(float)SINE_TABLE_SIZE));
     }
    
-    int j;
+    static int j;
     for (j=0; j<KEYPRESS_SIZE; j++) {
        keypresses[j] = 0;
        keypress_ID[j] = 0;
     }
+
    
-    int k;
+    static int k;
     for (k=0; k<MAX_FLANGER_SIZE; k++) {
         flange_buffer[k] = 0;
     }
