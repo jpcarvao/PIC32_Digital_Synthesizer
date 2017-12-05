@@ -45,17 +45,17 @@ OBJECTDIR=build/${CND_CONF}/${IMAGE_TYPE}
 DISTDIR=dist/${CND_CONF}/${IMAGE_TYPE}
 
 # Source Files Quoted if spaced
-SOURCEFILES_QUOTED_IF_SPACED=../tft_gfx.c ../tft_master.c ../port_expander.c ../main.c
+SOURCEFILES_QUOTED_IF_SPACED=../tft_gfx.c ../tft_master.c ../main.c ../port_expander_brl4.c
 
 # Object Files Quoted if spaced
-OBJECTFILES_QUOTED_IF_SPACED=${OBJECTDIR}/_ext/1472/tft_gfx.o ${OBJECTDIR}/_ext/1472/tft_master.o ${OBJECTDIR}/_ext/1472/port_expander.o ${OBJECTDIR}/_ext/1472/main.o
-POSSIBLE_DEPFILES=${OBJECTDIR}/_ext/1472/tft_gfx.o.d ${OBJECTDIR}/_ext/1472/tft_master.o.d ${OBJECTDIR}/_ext/1472/port_expander.o.d ${OBJECTDIR}/_ext/1472/main.o.d
+OBJECTFILES_QUOTED_IF_SPACED=${OBJECTDIR}/_ext/1472/tft_gfx.o ${OBJECTDIR}/_ext/1472/tft_master.o ${OBJECTDIR}/_ext/1472/main.o ${OBJECTDIR}/_ext/1472/port_expander_brl4.o
+POSSIBLE_DEPFILES=${OBJECTDIR}/_ext/1472/tft_gfx.o.d ${OBJECTDIR}/_ext/1472/tft_master.o.d ${OBJECTDIR}/_ext/1472/main.o.d ${OBJECTDIR}/_ext/1472/port_expander_brl4.o.d
 
 # Object Files
-OBJECTFILES=${OBJECTDIR}/_ext/1472/tft_gfx.o ${OBJECTDIR}/_ext/1472/tft_master.o ${OBJECTDIR}/_ext/1472/port_expander.o ${OBJECTDIR}/_ext/1472/main.o
+OBJECTFILES=${OBJECTDIR}/_ext/1472/tft_gfx.o ${OBJECTDIR}/_ext/1472/tft_master.o ${OBJECTDIR}/_ext/1472/main.o ${OBJECTDIR}/_ext/1472/port_expander_brl4.o
 
 # Source Files
-SOURCEFILES=../tft_gfx.c ../tft_master.c ../port_expander.c ../main.c
+SOURCEFILES=../tft_gfx.c ../tft_master.c ../main.c ../port_expander_brl4.c
 
 
 CFLAGS=
@@ -106,17 +106,17 @@ ${OBJECTDIR}/_ext/1472/tft_master.o: ../tft_master.c  nbproject/Makefile-${CND_C
 	@${RM} ${OBJECTDIR}/_ext/1472/tft_master.o 
 	@${FIXDEPS} "${OBJECTDIR}/_ext/1472/tft_master.o.d" $(SILENT) -rsi ${MP_CC_DIR}../  -c ${MP_CC}  $(MP_EXTRA_CC_PRE) -g -D__DEBUG -D__MPLAB_DEBUGGER_PK3=1 -fframe-base-loclist  -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -O1 -MMD -MF "${OBJECTDIR}/_ext/1472/tft_master.o.d" -o ${OBJECTDIR}/_ext/1472/tft_master.o ../tft_master.c    -O1 
 	
-${OBJECTDIR}/_ext/1472/port_expander.o: ../port_expander.c  nbproject/Makefile-${CND_CONF}.mk
-	@${MKDIR} "${OBJECTDIR}/_ext/1472" 
-	@${RM} ${OBJECTDIR}/_ext/1472/port_expander.o.d 
-	@${RM} ${OBJECTDIR}/_ext/1472/port_expander.o 
-	@${FIXDEPS} "${OBJECTDIR}/_ext/1472/port_expander.o.d" $(SILENT) -rsi ${MP_CC_DIR}../  -c ${MP_CC}  $(MP_EXTRA_CC_PRE) -g -D__DEBUG -D__MPLAB_DEBUGGER_PK3=1 -fframe-base-loclist  -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -O1 -MMD -MF "${OBJECTDIR}/_ext/1472/port_expander.o.d" -o ${OBJECTDIR}/_ext/1472/port_expander.o ../port_expander.c    -O1 
-	
 ${OBJECTDIR}/_ext/1472/main.o: ../main.c  nbproject/Makefile-${CND_CONF}.mk
 	@${MKDIR} "${OBJECTDIR}/_ext/1472" 
 	@${RM} ${OBJECTDIR}/_ext/1472/main.o.d 
 	@${RM} ${OBJECTDIR}/_ext/1472/main.o 
 	@${FIXDEPS} "${OBJECTDIR}/_ext/1472/main.o.d" $(SILENT) -rsi ${MP_CC_DIR}../  -c ${MP_CC}  $(MP_EXTRA_CC_PRE) -g -D__DEBUG -D__MPLAB_DEBUGGER_PK3=1 -fframe-base-loclist  -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -O1 -MMD -MF "${OBJECTDIR}/_ext/1472/main.o.d" -o ${OBJECTDIR}/_ext/1472/main.o ../main.c    -O1 
+	
+${OBJECTDIR}/_ext/1472/port_expander_brl4.o: ../port_expander_brl4.c  nbproject/Makefile-${CND_CONF}.mk
+	@${MKDIR} "${OBJECTDIR}/_ext/1472" 
+	@${RM} ${OBJECTDIR}/_ext/1472/port_expander_brl4.o.d 
+	@${RM} ${OBJECTDIR}/_ext/1472/port_expander_brl4.o 
+	@${FIXDEPS} "${OBJECTDIR}/_ext/1472/port_expander_brl4.o.d" $(SILENT) -rsi ${MP_CC_DIR}../  -c ${MP_CC}  $(MP_EXTRA_CC_PRE) -g -D__DEBUG -D__MPLAB_DEBUGGER_PK3=1 -fframe-base-loclist  -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -O1 -MMD -MF "${OBJECTDIR}/_ext/1472/port_expander_brl4.o.d" -o ${OBJECTDIR}/_ext/1472/port_expander_brl4.o ../port_expander_brl4.c    -O1 
 	
 else
 ${OBJECTDIR}/_ext/1472/tft_gfx.o: ../tft_gfx.c  nbproject/Makefile-${CND_CONF}.mk
@@ -131,17 +131,17 @@ ${OBJECTDIR}/_ext/1472/tft_master.o: ../tft_master.c  nbproject/Makefile-${CND_C
 	@${RM} ${OBJECTDIR}/_ext/1472/tft_master.o 
 	@${FIXDEPS} "${OBJECTDIR}/_ext/1472/tft_master.o.d" $(SILENT) -rsi ${MP_CC_DIR}../  -c ${MP_CC}  $(MP_EXTRA_CC_PRE)  -g -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -O1 -MMD -MF "${OBJECTDIR}/_ext/1472/tft_master.o.d" -o ${OBJECTDIR}/_ext/1472/tft_master.o ../tft_master.c    -O1 
 	
-${OBJECTDIR}/_ext/1472/port_expander.o: ../port_expander.c  nbproject/Makefile-${CND_CONF}.mk
-	@${MKDIR} "${OBJECTDIR}/_ext/1472" 
-	@${RM} ${OBJECTDIR}/_ext/1472/port_expander.o.d 
-	@${RM} ${OBJECTDIR}/_ext/1472/port_expander.o 
-	@${FIXDEPS} "${OBJECTDIR}/_ext/1472/port_expander.o.d" $(SILENT) -rsi ${MP_CC_DIR}../  -c ${MP_CC}  $(MP_EXTRA_CC_PRE)  -g -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -O1 -MMD -MF "${OBJECTDIR}/_ext/1472/port_expander.o.d" -o ${OBJECTDIR}/_ext/1472/port_expander.o ../port_expander.c    -O1 
-	
 ${OBJECTDIR}/_ext/1472/main.o: ../main.c  nbproject/Makefile-${CND_CONF}.mk
 	@${MKDIR} "${OBJECTDIR}/_ext/1472" 
 	@${RM} ${OBJECTDIR}/_ext/1472/main.o.d 
 	@${RM} ${OBJECTDIR}/_ext/1472/main.o 
 	@${FIXDEPS} "${OBJECTDIR}/_ext/1472/main.o.d" $(SILENT) -rsi ${MP_CC_DIR}../  -c ${MP_CC}  $(MP_EXTRA_CC_PRE)  -g -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -O1 -MMD -MF "${OBJECTDIR}/_ext/1472/main.o.d" -o ${OBJECTDIR}/_ext/1472/main.o ../main.c    -O1 
+	
+${OBJECTDIR}/_ext/1472/port_expander_brl4.o: ../port_expander_brl4.c  nbproject/Makefile-${CND_CONF}.mk
+	@${MKDIR} "${OBJECTDIR}/_ext/1472" 
+	@${RM} ${OBJECTDIR}/_ext/1472/port_expander_brl4.o.d 
+	@${RM} ${OBJECTDIR}/_ext/1472/port_expander_brl4.o 
+	@${FIXDEPS} "${OBJECTDIR}/_ext/1472/port_expander_brl4.o.d" $(SILENT) -rsi ${MP_CC_DIR}../  -c ${MP_CC}  $(MP_EXTRA_CC_PRE)  -g -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -O1 -MMD -MF "${OBJECTDIR}/_ext/1472/port_expander_brl4.o.d" -o ${OBJECTDIR}/_ext/1472/port_expander_brl4.o ../port_expander_brl4.c    -O1 
 	
 endif
 

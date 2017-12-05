@@ -8,8 +8,8 @@
       <itemPath>../pt_cornell_1_2_1.h</itemPath>
       <itemPath>../tft_gfx.h</itemPath>
       <itemPath>../tft_master.h</itemPath>
-      <itemPath>../port_expander.h</itemPath>
       <itemPath>../synth.h</itemPath>
+      <itemPath>../port_expander_brl4.h</itemPath>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
@@ -20,8 +20,8 @@
                    projectFiles="true">
       <itemPath>../tft_gfx.c</itemPath>
       <itemPath>../tft_master.c</itemPath>
-      <itemPath>../port_expander.c</itemPath>
       <itemPath>../main.c</itemPath>
+      <itemPath>../port_expander_brl4.c</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
@@ -42,7 +42,7 @@
         <targetDevice>PIC32MX250F128B</targetDevice>
         <targetHeader></targetHeader>
         <targetPluginBoard></targetPluginBoard>
-        <platformTool>PKOBSKDEPlatformTool</platformTool>
+        <platformTool>PICkit3PlatformTool</platformTool>
         <languageToolchain>XC32</languageToolchain>
         <languageToolchainVersion>1.40</languageToolchainVersion>
         <platform>3</platform>
