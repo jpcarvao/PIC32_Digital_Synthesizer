@@ -9,7 +9,7 @@
 
 #include "synth.h"
 
-#define Fs 20000.0  // 70kHz
+#define Fs 20000.0  // 20kHz
 #define two32 4294967296.0 // 2^32 
 #define NUM_KEYS 13
 //#define NUM_KEYS 2
