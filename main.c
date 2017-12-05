@@ -9,107 +9,6 @@
 
 #include "synth.h"
 
-#define Fs 20000.0  // 20kHz
-#define two32 4294967296.0 // 2^32 
-#define NUM_KEYS 13
-//#define NUM_KEYS 2
-
-volatile SpiChannel spiChn = SPI_CHANNEL2 ;	// the SPI channel to use
-// for 60 MHz PB clock use divide-by-3
-volatile int spiClkDiv = 2 ; // 20 MHz DAC clock
-
-// === thread structures ======================================================
-static struct pt pt_read_button, pt_read_inputs, pt_read_repeat, pt_freq_tune, 
-        pt_repeat_buttons, pt_cycle_button, pt_enter_button, pt_ui, 
-        pt_ui_print, pt_read_mux;  
-
-// DDS sine table
-#define SINE_TABLE_SIZE 256
-volatile fix16 sin_table[SINE_TABLE_SIZE];
-
-//== Timer 2 interrupt handler ================================================
-// actual scaled DAC 
-volatile short DAC_data;
-
-// actual frequencies 
-volatile int frequencies[NUM_KEYS] = 
-        {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523}; 
-// for freq modulation
-volatile int frequencies_set[NUM_KEYS] = 
-        {262, 277, 293, 311, 330, 349, 370, 392, 415, 440, 466 ,493, 523};  
-
-volatile int frequencies_FM[NUM_KEYS];
-// the DDS units:
-// for sine table
-volatile unsigned int phase_accum_main[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
-volatile unsigned int phase_incr_main[NUM_KEYS];
-// for FM synthesis
-volatile unsigned int phase_accum_FM[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
-volatile unsigned int phase_incr_FM[NUM_KEYS];
-
-//volatile int modulation_constant=0; 
-volatile int ramp_done = 0;
-volatile int ramp_counter = 0;
-volatile int ramp_flag[NUM_KEYS]= {0,0,0,0,0,0,0,0,0,0,0,0,0};
-volatile int button_pressed[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
-volatile int button_pressed_in[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
-volatile int num_keys_pressed;
-
-#define KEYPRESS_SIZE 256
-volatile int keypresses[KEYPRESS_SIZE];
-volatile int keypress_ID[KEYPRESS_SIZE];
-volatile int keypress_count = 0;
-volatile int start_recording = 0;
-
-volatile int repeat_mode_on = 1;
-volatile int valid_size;
-volatile float tempo = 1;
-
-//FX stuff
-volatile float fx;
-volatile float fm_ratio = 3;
-volatile int DELAY_RAMP_PERIOD = 200;
-volatile fix16 attack_main = float2fix16(0.05);
-volatile fix16 dk_main = float2fix16(0.97);
-
-// Flanging Stuff (Phase Shifting)
-#define MAX_FLANGER_SIZE 2048
-volatile short flange_buffer[MAX_FLANGER_SIZE];
-volatile unsigned int current_flanger_delay = 0;
-volatile int flange_counter = 0;
-volatile int delay_counter = 0;
-volatile int flange_flag=-1;
-
-volatile short delay_signal;
-volatile int delay_on=0;
-
-// FM Synthesis Stuff
-volatile fix16 dk_fm=float2fix16(0.99), attack_fm=float2fix16(0.02);
-volatile fix16 dk_state_fm[NUM_KEYS], attack_state_fm[NUM_KEYS];
-volatile fix16 dk_state_main[NUM_KEYS], attack_state_main[NUM_KEYS];
-volatile fix16 fm_depth=float2fix16(2);
-volatile fix16 env_fm[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
-volatile fix16 env_main[NUM_KEYS] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
-
-volatile fix16 dk_state_fm_temp;
-volatile fix16 dk_state_main_temp;
-volatile fix16 attack_state_fm_temp;
-volatile fix16 attack_state_main_temp;
-
-volatile int dk_interval = 0;
-
-volatile int sustain = 1;  // sustain on at startup
-
-volatile int button_input=0;
-
-// UI STUFF
-volatile int flanger_on;
-volatile int analog_noise_on;
-volatile int fm_on = 1;  // donates if fm synth is on (on at startup)
-
-/* Auxiliary Function definitions */
-void adc_config(void);
-
 void __ISR(_TIMER_2_VECTOR, ipl2) Timer2Handler(void)
 {
     // 74 cycles to get to this point from timer event
@@ -303,13 +202,13 @@ static PT_THREAD (protothread_read_button(struct pt *pt))
     PT_END(pt);
 }
 
+
 static PT_THREAD (protothread_repeat_buttons(struct pt *pt))
 {
     PT_BEGIN(pt);
     static int yield_length;
     static int i;
     static int j;
-    //char buffer[256];
     while (1) {
         for (j = 0; j < NUM_KEYS; j++) {
             button_pressed[j]=0;
@@ -352,7 +251,6 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
         fx = scale2;
         for (j = 0; j < NUM_KEYS; j++) {
             frequencies[j] = ((int) frequencies_set[j] * scale);
-            //frequencies[j] = ((int) frequencies_set[j] * 1);
             phase_incr_main[j]  = frequencies[j]*two32/Fs;
             // fm synth 
             frequencies_FM[j] = fm_ratio*frequencies[j];
@@ -363,10 +261,6 @@ static PT_THREAD (protothread_freq_tune(struct pt *pt))
     PT_END(pt);
 }
 
-static int mod_param = 0;
-
-static int cycle_pressed = 0;  // cycle button pressed 
-static int cycle_state = 0;
 
 static PT_THREAD (protothread_cycle_button(struct pt *pt))
 {
@@ -392,18 +286,10 @@ static PT_THREAD (protothread_cycle_button(struct pt *pt))
 	PT_END(pt);
 }
 
-static int enter_pressed = 0;
-static int enter_state = 0;
-
-#define MOD_FM      0
-#define MOD_FLANGER 1
-#define MOD_ATK     2
-#define MOD_DECAY   3
 
 static PT_THREAD (protothread_enter_button(struct pt *pt))
 {
 	PT_BEGIN(pt);
-    char buffer[60];
 	while (1) {
 		PT_YIELD_TIME_msec(30);
 		if (!enter_state) {
@@ -424,7 +310,6 @@ static PT_THREAD (protothread_enter_button(struct pt *pt))
 						break;
 					default:
                         break;
-						// do something 
 				}
 			}
 		}
@@ -436,25 +321,6 @@ static PT_THREAD (protothread_enter_button(struct pt *pt))
 	}
 	PT_END(pt);
 }
-
-// UI globals
-static short modified_tempo;
-static short modified_pitch;
-static int freq_adc = 0;
-// flange stuff
-static int flange_state = 0;  // state of flanger button state machine
-static int flange_pressed;    // reads input for flanger button
-// fm stuff 
-static int fm_state = 1;  // fm synthesis on at start up 
-static int fm_pressed;    // reads input for fm 
-// sustain stuff 
-static int sus_state = 1; // sustain on at start up
-static int sus_pressed;   // reads input for sustain
-// tone stack stuff
-static int stack_on;
-// repeat button
-static int repeat_pressed;
-static int repeat_state = 1;
 
 /* Thread that processes user inputs */
 static PT_THREAD (protothread_ui(struct pt *pt))
@@ -544,7 +410,6 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
     while (1) {
         // update display once every 500ms
         PT_YIELD_TIME_msec(500);
-        //tft_fillRoundRect(0, 40, 450, 250, 1, ILI9340_BLACK);
         // flanger print ======================================================
         tft_setCursor(1,40);
         tft_fillRoundRect(0, 40, 125, 10, 1, ILI9340_BLACK);
@@ -571,12 +436,6 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
         }
         tft_writeString(buffer);
         
-        tft_fillRoundRect(150,60,125,10,1,ILI9340_BLACK);
-        tft_setCursor(150,60);
-        tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
-        //sprintf("%d", keypresses[0]);
-        //tft_writeString(buffer);
-
         // Tempo Display ======================================================
         tft_setCursor(1,100);
         tft_setTextColor(ILI9340_YELLOW);  tft_setTextSize(1);
@@ -668,6 +527,7 @@ static PT_THREAD (protothread_ui_print(struct pt *pt))
     PT_END(pt);
 }
 
+/* Thread that Reads Mux */
 static PT_THREAD (protothread_read_mux(struct pt *pt )) 
 {
     PT_BEGIN(pt);
@@ -688,8 +548,8 @@ static PT_THREAD (protothread_read_mux(struct pt *pt ))
         //yield necessary otherwise you use the select mask from select signal
         PT_YIELD_TIME_msec(10);
         flange_pressed = mPORTBReadBits(BIT_8);
-//         FM Synth Toggle ====================================================
-//         ABC = 100
+        // FM Synth Toggle ====================================================
+        // ABC = 100
         mPORTBClearBits(BIT_10 | BIT_13);
         mPORTBSetBits(BIT_7);
         PT_YIELD_TIME_msec(10);
@@ -699,13 +559,7 @@ static PT_THREAD (protothread_read_mux(struct pt *pt ))
         mPORTBClearBits(BIT_7 | BIT_13);
         mPORTBSetBits(BIT_10);
         PT_YIELD_TIME_msec(10);
-        sus_pressed = mPORTBReadBits(BIT_8);
-        // Tone Stack Switch ==================================================
-        // ABC = 110
-        mPORTBClearBits(BIT_13);
-        mPORTBSetBits(BIT_7 | BIT_10);
-        PT_YIELD_TIME_msec(10);
-        analog_noise_on = mPORTBReadBits(BIT_8); 
+        sus_pressed = mPORTBReadBits(BIT_8); 
         // Cycle Button =======================================================
         // ABC = 001 
         mPORTBClearBits(BIT_7 | BIT_10);
@@ -755,15 +609,11 @@ void adc_config(void)
     EnableADC10(); // Enable the ADC
 }
 
-/* Configures peripherals, timing, interrups, and schedules+cofigures threads*/
+/* Configures peripherals, timing, interrupts, and schedules+configures threads*/
 void main(void)
 {
     // Timing and ISR =========================================================
-    // Set up timer2 on,  interrupts, internal clock, prescalar 1, toggle rate
-    // 400 is 100 ksamples/sec at 30 MHz clock
-    // 200 is 200 ksamples/sec
-    // increased to 572 from 200 because was leading to incorrect sine freq
-    //changing from 143
+    // Set up timer2 on, interrupts, internal clock, prescalar 1:4, toggle rate
     OpenTimer2(T2_ON | T2_SOURCE_INT | T2_PS_1_4, 508);   
     ConfigIntTimer2(T2_INT_ON | T2_INT_PRIOR_2);
     mT2ClearIntFlag(); 
@@ -817,7 +667,6 @@ void main(void)
        keypress_ID[j] = 0;
     }
 
-   
     static int k;
     for (k=0; k<MAX_FLANGER_SIZE; k++) {
         flange_buffer[k] = 0;
@@ -827,14 +676,13 @@ void main(void)
     PT_INIT(&pt_read_button);
     PT_INIT(&pt_read_inputs);
     PT_INIT(&pt_freq_tune);
-    PT_INIT(&pt_read_repeat);
     PT_INIT(&pt_repeat_buttons);
     PT_INIT(&pt_cycle_button);
     PT_INIT(&pt_enter_button);
     PT_INIT(&pt_ui);
     PT_INIT(&pt_ui_print);
-    
     PT_INIT(&pt_read_mux);
+    
     // scheduling loop 
     while(1) {
         if (!repeat_mode_on){
